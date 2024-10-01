@@ -10,7 +10,7 @@ extern Config config;
 const char* apiHost = "api.svitlobot.in.ua";
 const int httpsPort = 443;  // Порт для HTTPS
 const char* apiURL = "/channelPing?channel_key=";
-const char* fingerprint = "8a:12:84:fe:41:6d:ee:9b:db:ff:29:15:a3:40:57:8b:68:2f:89:c5";  // Відбиток сертифікату сервера СвітлоБот. В разі потреби, новий відбиток можна перевірити тут https://iplocation.io/ssl-certificate-fingerprint
+const char* fingerprint = "e6:6d:f2:0a:c8:39:b5:63:be:8f:d7:01:ad:6e:b1:3a:78:63:e7:66";  // Відбиток сертифікату сервера СвітлоБот. В разі потреби, новий відбиток можна перевірити тут https://iplocation.io/ssl-certificate-fingerprint
 
 // Функція для перевірки доступності каналу через HTTPS запит
 void channelPingRequest() {
