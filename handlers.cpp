@@ -67,17 +67,42 @@ void handleChannelKey() {
   }
 
   if (server.method() == HTTP_POST) {
+    bool changed = false;
     if (server.hasArg("channel_key")) {
-      strcpy(config.channel_key, server.arg("channel_key").c_str());
+      strncpy(config.channel_key, server.arg("channel_key").c_str(), sizeof(config.channel_key) - 1);
+      config.channel_key[sizeof(config.channel_key) - 1] = '\0';
+      changed = true;
+    }
+    if (server.hasArg("fingerprint")) {
+      String fp = server.arg("fingerprint");
+      fp.trim();
+      if (fp.length() == 0) {
+        config.fingerprint[0] = '\0';
+      } else {
+        strncpy(config.fingerprint, fp.c_str(), sizeof(config.fingerprint) - 1);
+        config.fingerprint[sizeof(config.fingerprint) - 1] = '\0';
+      }
+      changed = true;
+    }
+    // Checkbox: present => true, absent => false
+    bool new_force_http = server.hasArg("force_http");
+    if (config.force_http != new_force_http) {
+      config.force_http = new_force_http;
+      changed = true;
+    }
+
+    if (changed) {
       saveConfig();
       server.sendHeader("Location", "/channel_key", true);
       server.send(302, "text/plain", "");
     } else {
-      handleMessage("Missing channel key.");
+      handleMessage("Missing channel key or fingerprint.");
     }
   } else {
     String page = String(channelKeyPage);
     page.replace("%CHANNEL_KEY%", config.channel_key);
+    page.replace("%FINGERPRINT%", String(config.fingerprint));
+    page.replace("%FORCE_HTTP_CHECKED%", config.force_http ? "checked" : "");
     page.replace("%HEAD_PARTITION%", headPartition);
     page.replace("%FOOTER_PARTITION%", footerPartition);
     server.send(200, "text/html", page);  // Відображення сторінки налаштування ключа каналу

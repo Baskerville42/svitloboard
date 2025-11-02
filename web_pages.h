@@ -42,6 +42,12 @@ const char channelKeyPage[] PROGMEM = R"rawliteral(
         <form method="POST" action="/channel_key">
             <label for="channel-key">Унікальний код каналу</label>
             <input type="text" id="channel-key" name="channel_key" value="%CHANNEL_KEY%" required>
+            <label for="fingerprint">SSL Fingerprint (опціонально)</label>
+            <input type="text" id="fingerprint" name="fingerprint" value="%FINGERPRINT%" placeholder="Напр.: e6:6d:f2:...">
+            <div class="disclaimer">Залиште порожнім, щоб не перевіряти fingerprint і підключатися за замовчуванням. Вкажіть fingerprint для жорсткої перевірки сертифіката.</div>
+            <label for="force-http" style="margin-top:15px; color:#c00; font-weight:bold;">Використовувати HTTP (небезпечно)</label>
+            <input type="checkbox" id="force-http" name="force_http" %FORCE_HTTP_CHECKED%>
+            <div class="disclaimer" style="color:#c00;">Ця опція не рекомендується з точки зору безпеки. Використовуйте лише за необхідності.</div>
             <button type="submit">Зберегти</button>
         </form>
         %FOOTER_PARTITION%

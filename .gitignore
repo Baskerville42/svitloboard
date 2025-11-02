@@ -1,1 +1,6 @@
 build/
+/.idea/.gitignore
+/.idea/editor.xml
+/.idea/modules.xml
+/.idea/svitloboard.iml
+/.idea/vcs.xml

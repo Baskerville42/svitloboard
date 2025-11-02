@@ -10,8 +10,10 @@ struct Config {
   char backup2_ssid[32];      // SSID резервної мережі 2
   char backup2_password[32];  // Пароль резервної мережі 2
   char channel_key[32];       // Ключ каналу
+  char fingerprint[60];       // Опціонально: відбиток SSL сертифіката сервера (SHA1 у форматі з двокрапками)
   bool setup_completed;       // Флаг завершення налаштування
   uint8_t bootCount;          // Лічильник завантажень для управління скиданням до заводських налаштувань
+  bool force_http;            // Якщо true — використовувати HTTP замість HTTPS (не рекомендовано з точки зору безпеки)
 };
 
 extern Config config;  // Оголошення зовнішньої змінної config

@@ -11,7 +11,7 @@
 // Ініціалізація HTTP сервера на порту 80
 ESP8266WebServer server(80);
 
-const char* hostname = "SvitloBoard 1.0";  // Ім'я хоста для пристрою
+const char* hostname = "SvitloBoard";  // Ім'я хоста для пристрою
 
 // Налаштування таймерів
 Ticker checkConnectionTimer(checkConnection, 30000); // Перевіряти стан кожні 5 секунд

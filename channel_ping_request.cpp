@@ -1,4 +1,5 @@
 #include <ESP8266WiFi.h>
+#include <WiFiClient.h>
 #include <WiFiClientSecure.h>
 #include "config.h"
 
@@ -9,38 +10,66 @@ extern Config config;
 // Константи для API
 const char* apiHost = "api.svitlobot.in.ua";
 const int httpsPort = 443;  // Порт для HTTPS
+const int httpPort = 80;    // Порт для HTTP
 const char* apiURL = "/channelPing?channel_key=";
-const char* fingerprint = "e6:6d:f2:0a:c8:39:b5:63:be:8f:d7:01:ad:6e:b1:3a:78:63:e7:66";  // Відбиток сертифікату сервера СвітлоБот. В разі потреби, новий відбиток можна перевірити тут https://iplocation.io/ssl-certificate-fingerprint
+// Примітка: За замовчуванням пінінг сертифікату вимкнено (див. нижче). Користувач може вказати fingerprint у веб-інтерфейсі.
 
-// Функція для перевірки доступності каналу через HTTPS запит
+// Функція для перевірки доступності каналу через HTTP/HTTPS запит
 void channelPingRequest() {
   // Перевірка статусу WiFi та налаштувань
   if (WiFi.status() == WL_CONNECTED && config.setup_completed) {
-    WiFiClientSecure client;
-    client.setFingerprint(fingerprint);  // Встановлюємо сертифікат палець для безпеки
+    int port = httpsPort;
+    Client* clientPtr = nullptr;
+    WiFiClient httpClient;
+    WiFiClientSecure httpsClient;
+
+    if (config.force_http) {
+      // HTTP режим (небезпечно)
+      clientPtr = &httpClient;
+      port = httpPort;
+      Serial.println("Mode: HTTP (insecure)");
+    } else {
+      // HTTPS режим
+      if (config.fingerprint[0] != '\0') {
+        httpsClient.setFingerprint(config.fingerprint);  // Пінінг, якщо вказано fingerprint
+        Serial.print("Mode: HTTPS with fingerprint pinning ");
+        Serial.println(config.fingerprint);
+      } else {
+        httpsClient.setInsecure();  // Без пінінгу: довіряємо з'єднанню (на свій ризик)
+        Serial.println("Mode: HTTPS without pinning (insecure)");
+      }
+      clientPtr = &httpsClient;
+      port = httpsPort;
+    }
 
     Serial.print("Connecting to ");
-    Serial.println(apiHost);
+    Serial.print(apiHost);
+    Serial.print(":");
+    Serial.println(port);
 
     // Спроба з'єднання з сервером
-    if (!client.connect(apiHost, httpsPort)) {
+    if (!clientPtr->connect(apiHost, port)) {
       Serial.println("Connection failed");
+      clientPtr->stop();
       return;
     }
 
     // Формування запиту
-    String request = String("GET ") + apiURL + config.channel_key + " HTTP/1.1\r\n" + "Host: " + apiHost + "\r\n" + "User-Agent: " + hostname + "\r\n" + "Connection: close\r\n\r\n";
+    String request = String("GET ") + apiURL + config.channel_key + " HTTP/1.1\r\n" +
+                     "Host: " + apiHost + "\r\n" +
+                     "User-Agent: " + hostname + "\r\n" +
+                     "Connection: close\r\n\r\n";
 
-    client.print(request);
+    clientPtr->print(request);
 
     Serial.println("Request sent");
 
     // Очікування відповіді
     unsigned long startTime = millis();
-    while (client.connected() && !client.available()) {
+    while (clientPtr->connected() && !clientPtr->available()) {
       if (millis() - startTime > 5000) {  // Тайм-аут 5 секунд
         Serial.println("Response timeout");
-        client.stop();
+        clientPtr->stop();
         return;
       }
       delay(1);
@@ -50,8 +79,8 @@ void channelPingRequest() {
     String responseLine;
     bool statusFound = false;
 
-    while (client.connected() || client.available()) {
-      responseLine = client.readStringUntil('\n');
+    while (clientPtr->connected() || clientPtr->available()) {
+      responseLine = clientPtr->readStringUntil('\n');
       if (responseLine.startsWith("HTTP/1.1 200")) {
         statusFound = true;
         break;
@@ -64,7 +93,7 @@ void channelPingRequest() {
       Serial.println("HTTP status not 200 OK");
     }
 
-    client.stop();  // Закриття з'єднання
+    clientPtr->stop();  // Закриття з'єднання
   } else {
     Serial.println("WiFi not connected or channel_key not set");
   }

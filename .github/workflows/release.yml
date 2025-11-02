@@ -1,0 +1,159 @@
+name: Build and Release Firmware
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      manual_release_notes:
+        description: 'Override auto-generated release notes (optional)'
+        required: false
+        default: ''
+      manual_version:
+        description: 'Override version (format 1.x). If empty, auto-increment minor.'
+        required: false
+        default: ''
+
+permissions:
+  contents: write  # to create tags and releases
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+
+    env:
+      FQBN: esp8266:esp8266:generic  # ESP-01 class modules use the generic ESP8266 board in core 3.x
+      SKETCH_DIR: .
+      ASSET_NAME: svitloboard.ino.bin
+      MAJOR: '1'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # we need full history and tags for release notes
+
+      - name: Set up Arduino CLI
+        uses: arduino/setup-arduino-cli@v2
+
+      - name: Configure Arduino CLI indexes
+        run: |
+          arduino-cli config init
+          arduino-cli config set board_manager.additional_urls https://arduino.esp8266.com/stable/package_esp8266com_index.json
+          arduino-cli config dump
+          arduino-cli core update-index
+          arduino-cli core search esp8266 || true
+          arduino-cli core list
+
+      - name: Install ESP8266 core
+        run: |
+          arduino-cli core install esp8266:esp8266@3.1.2
+          arduino-cli core list
+
+      - name: Resolve Version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --tags --force
+
+          # If manual version provided, use it (validate format 1.x)
+          if [[ -n "${{ github.event.inputs.manual_version }}" ]]; then
+            ver="${{ github.event.inputs.manual_version }}"
+            if [[ ! $ver =~ ^${MAJOR}\.([0-9]+)$ ]]; then
+              echo "Manual version must be in format ${MAJOR}.x" >&2
+              exit 1
+            fi
+            echo "version=$ver" >> "$GITHUB_OUTPUT"
+            echo "prev_tag=$(git tag --list 'release-${MAJOR}.*' | sort -V | tail -n 1)" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Find latest tag release-1.x
+          last_tag=$(git tag --list "release-${MAJOR}.*" | sort -V | tail -n 1)
+          if [[ -z "$last_tag" ]]; then
+            # start at 1.1 if no previous
+            next_minor=1
+            prev_tag=""
+          else
+            prev_tag="$last_tag"
+            # extract minor and increment
+            minor=$(sed -E "s/^release-${MAJOR}\.([0-9]+)$/\1/" <<< "$last_tag")
+            if [[ -z "$minor" ]]; then minor=0; fi
+            next_minor=$((minor + 1))
+          fi
+          version="${MAJOR}.${next_minor}"
+          echo "Resolved version: $version (prev_tag='$prev_tag')"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "prev_tag=$prev_tag" >> "$GITHUB_OUTPUT"
+
+      - name: Compile sketch
+        run: |
+          arduino-cli compile --fqbn "$FQBN" --export-binaries "$SKETCH_DIR"
+
+      - name: Find produced binary and rename
+        id: bin
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Find the .bin produced by arduino-cli
+          BIN_PATH=$(find "$SKETCH_DIR" -type f -name "*.ino.bin" | head -n 1)
+          if [[ -z "$BIN_PATH" ]]; then
+            echo "Firmware binary not found" >&2
+            find . -maxdepth 4 -type f -print
+            exit 1
+          fi
+          echo "Found binary: $BIN_PATH"
+          cp "$BIN_PATH" "$ASSET_NAME"
+          echo "path=$ASSET_NAME" >> "$GITHUB_OUTPUT"
+
+      - name: Generate release notes
+        id: notes
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -n "${{ github.event.inputs.manual_release_notes }}" ]]; then
+            CHANGES="${{ github.event.inputs.manual_release_notes }}"
+          else
+            if [[ -n "${{ steps.version.outputs.prev_tag }}" ]]; then
+              CHANGES=$(git log --pretty=format:"- %s" "${{ steps.version.outputs.prev_tag }}"..HEAD)
+            else
+              CHANGES=$(git log --pretty=format:"- %s")
+            fi
+            # Strip leading issue references like "#4", "#12:" at the start of each bullet line
+            # Examples transformed:
+            #   "- #4 Add feature"      -> "- Add feature"
+            #   "- #12: Fix bug"        -> "- Fix bug"
+            #   "- #4 #5: Update docs"  -> "- Update docs"
+            CHANGES=$(printf "%s\n" "$CHANGES" | sed -E 's/^[-]\s*(#[0-9]+:?[[:space:]]*)+/- /')
+            if [[ -z "$CHANGES" ]]; then
+              CHANGES="- Автоматичний реліз: без змін у повідомленнях комітів."
+            fi
+          fi
+
+          WARNING_TEXT="**Увага!** Прошивка цієї версії протестована для роботи лише на ESP8266 (ESP-01)."
+          BODY_FILE=$(mktemp)
+          {
+            printf "%s\n" "$CHANGES"
+            printf "<br/><br/>\n"
+            printf "%s\n" "$WARNING_TEXT"
+          } > "$BODY_FILE"
+          echo "body_file=$BODY_FILE" >> "$GITHUB_OUTPUT"
+
+      - name: Create Git tag and GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: release-${{ steps.version.outputs.version }}
+          name: ${{ steps.version.outputs.version }}
+          body_path: ${{ steps.notes.outputs.body_file }}
+          make_latest: true
+          files: |
+            ${{ steps.bin.outputs.path }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload build artifact (for debugging)
+        uses: actions/upload-artifact@v4
+        with:
+          name: firmware-${{ steps.version.outputs.version }}
+          path: ${{ steps.bin.outputs.path }}
