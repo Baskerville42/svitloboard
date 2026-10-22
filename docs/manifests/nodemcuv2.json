@@ -1,0 +1,1 @@
+{"name":"SvitloBoard","version":"2.0.0-dev","new_install_prompt_erase":true,"new_install_improv_wait_time":0,"builds":[{"chipFamily":"ESP8266","improv":false,"parts":[{"path":"../firmware/svitloboard-nodemcuv2.bin","offset":0}]}]}

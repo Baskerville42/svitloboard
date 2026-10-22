@@ -4,3 +4,5 @@ build/
 /.idea/modules.xml
 /.idea/svitloboard.iml
 /.idea/vcs.xml
+firmware/.pio/
+.DS_Store

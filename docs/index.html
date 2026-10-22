@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#171327">
+  <meta name="description" content="Встановлення SvitloBoard 2 на ESP8266 або ESP32 та підключення пристрою до СвітлоБота.">
+  <title>SvitloBoard — встановлення прошивки</title>
+  <link rel="stylesheet" href="assets/site.css">
+  <script type="module" src="https://unpkg.com/esp-web-tools@10.4.0/dist/web/install-button.js?module"></script>
+</head>
+<body>
+  <header class="hero">
+    <nav><a class="brand" href="#top" aria-label="SvitloBoard">СВІТЛО<span>BOARD</span></a><a href="https://github.com/Baskerville42/svitloboard">Код і документація ↗</a></nav>
+    <div class="hero-grid" id="top">
+      <div>
+        <p class="eyebrow">SvitloBoard 2</p>
+        <h1>Індикатор світла<br><em>для СвітлоБота.</em></h1>
+        <p class="lead">Прошивка перетворює ESP-плату на простий індикатор: доки плата має живлення та доступ до інтернету, вона надсилає сигнали у СвітлоБот. Канал, статус і сповіщення веде сам СвітлоБот.</p>
+        <a class="primary-link" href="#how-it-works">Як це працює <span>↓</span></a>
+      </div>
+      <div class="device-art" aria-hidden="true">
+        <div class="signal s1"></div><div class="signal s2"></div><div class="signal s3"></div>
+        <div class="board"><div class="chip">ESP</div><i></i><i></i><i></i><i></i><b class="led"></b></div>
+        <div class="power-line"></div><div class="dot"></div>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <section class="steps" id="how-it-works" aria-label="Як працює SvitloBoard">
+      <div><b>01</b><span>Плата живиться від розетки, наявність світла в якій треба показувати</span></div>
+      <div><b>02</b><span>Поки є живлення й інтернет, плата раз на хвилину звертається до СвітлоБота</span></div>
+      <div><b>03</b><span>СвітлоБот обробляє сигнали та оновлює статус у вашому каналі</span></div>
+    </section>
+
+    <aside class="preview-notice" role="status">
+      <strong>Статус SvitloBoard 2: тестова версія.</strong>
+      <span>Збірки проходять автоматичну компіляцію, але ще не перевірені на кожній фізичній платі. Не замінюйте робочий пристрій, якщо не маєте способу повернути попередню прошивку.</span>
+    </aside>
+
+    <aside class="plain-note">
+      <strong>Важливо розуміти:</strong>
+      <span>SvitloBoard не вимірює напругу, не знає графіків і не керує Telegram-каналом. Втрата Wi-Fi або інтернету для такого індикатора не відрізняється від зникнення живлення, тому мережа має бути стабільною.</span>
+    </aside>
+
+    <section class="svitlobot-setup">
+      <div class="section-head">
+        <p class="eyebrow">Спочатку — СвітлоБот</p>
+        <h2>Підготуйте канал і ключ</h2>
+        <p>Прошивка не створює канал. До налаштування плати у вас уже має бути підключений канал СвітлоБота та його унікальний ключ.</p>
+      </div>
+      <ol class="task-list">
+        <li><b>Відкрийте <a href="https://t.me/SvitloUkraineBot">@SvitloUkraineBot</a></b><span>Натисніть «🔑 Створити свого СвітлоБота» та виконайте інструкції чат-бота.</span></li>
+        <li><b>Створіть публічний канал</b><span>Додайте @SvitloUkraineBot адміністратором із правами, які попросить бот. Назву та посилання каналу оформіть за правилами проєкту.</span></li>
+        <li><b>Отримайте унікальний ключ</b><span>У меню @SvitloUkraineBot натисніть «Статус». Скопіюйте виданий ключ і нікому його не передавайте — він дає доступ до оновлення стану каналу.</span></li>
+        <li><b>Визначте розетку для плати</b><span>Живіть SvitloBoard від тієї електромережі, стан якої має бачити канал. Не використовуйте UPS або павербанк: тоді плата не вимкнеться разом зі світлом.</span></li>
+      </ol>
+      <div class="reference-links"><a href="https://svitlobot.in.ua/instructions?idx=1">Офіційна інструкція СвітлоБота ↗</a><a href="https://svitlobot.in.ua/rules">Правила для власників каналів ↗</a></div>
+    </section>
+
+    <section class="preflight">
+      <div class="section-head">
+        <p class="eyebrow">Перед прошивкою</p>
+        <h2>Підготуйте плату</h2>
+        <p>Потрібні комп’ютер, актуальний Chrome, Edge або Firefox і USB-кабель із лініями даних. iPhone та iPad для прошивки не підходять.</p>
+      </div>
+      <div class="check-grid">
+        <article><b>Звірте маркування</b><p>Для ESP32 прочитайте назву на металевому модулі: ESP32, ESP32-C3 або ESP32-S3. D1 mini та NodeMCU зазвичай підписані на платі.</p></article>
+        <article><b>Перевірте пам’ять ESP-01</b><p>Напис «ESP-01S» і колір плати не гарантують 1 МБ. Перевірте специфікацію продавця або виконайте <code>esptool flash-id</code>.</p></article>
+        <article><b>Перевірте USB-з’єднання</b><p>Якщо порт не з’являється, спробуйте інший кабель або USB-порт. Для CH340 чи CP210x може знадобитися драйвер.</p></article>
+        <article><b>Від’єднайте додаткові модулі</b><p>На час запису приберіть датчики й іншу периферію з GPIO. ESP-01 та Sonoff прошиваються через USB–UART із логікою <strong>3,3 В</strong>.</p></article>
+      </div>
+    </section>
+
+    <section class="installer" id="installer">
+      <div class="section-head"><p class="eyebrow">Прошивка · крок 1</p><h2>Оберіть точну плату</h2><p>Браузер перевірить сімейство чипа, але не визначить модель плати або обсяг flash-пам’яті замість вас.</p></div>
+      <div class="board-picker" role="radiogroup" aria-label="Модель плати">
+        <button class="board-option" data-board="esp01_512k" role="radio" aria-checked="false"><strong>ESP-01 · 512 КБ</strong><span>Лише підтверджені 512 КБ</span><small>Мінімальна панель · без OTA</small></button>
+        <button class="board-option" data-board="esp01_1m" role="radio" aria-checked="false"><strong>ESP-01 / ESP-01S · 1 МБ</strong><span>Лише підтверджений 1 МБ</span><small>Компактна панель · OTA</small></button>
+        <button class="board-option selected" data-board="d1_mini" role="radio" aria-checked="true"><strong>D1 mini</strong><span>WEMOS або LOLIN</span><small>ESP8266 із USB</small></button>
+        <button class="board-option" data-board="nodemcuv2" role="radio" aria-checked="false"><strong>NodeMCU v2</strong><span>NodeMCU DEVKIT 1.0</span><small>ESP8266 із USB</small></button>
+        <button class="board-option" data-board="sonoff_basic_r2" role="radio" aria-checked="false"><strong>Sonoff Basic R2</strong><span>ESP8285 · 1 МБ</span><small>Компактна панель · USB–UART</small></button>
+        <button class="board-option" data-board="sonoff_basic_r3" role="radio" aria-checked="false"><strong>Sonoff Basic R3</strong><span>ESP8285 · 1 МБ</span><small>Компактна панель · USB–UART</small></button>
+        <button class="board-option" data-board="esp32dev" role="radio" aria-checked="false"><strong>ESP32 DevKit</strong><span>ESP32-WROOM-32</span><small>Класичний ESP32 · 4 МБ</small></button>
+        <button class="board-option" data-board="esp32-c3" role="radio" aria-checked="false"><strong>ESP32-C3</strong><span>ESP32-C3-DevKitM-1</span><small>4 МБ flash</small></button>
+        <button class="board-option" data-board="esp32-s3" role="radio" aria-checked="false"><strong>ESP32-S3</strong><span>ESP32-S3-DevKitC-1 N8</span><small>8 МБ flash</small></button>
+      </div>
+
+      <div class="flash-panel">
+        <div><p class="eyebrow">Обрано</p><h3 id="selected-name">D1 mini</h3><p id="selected-note">Для плат із написом WEMOS або LOLIN D1 mini.</p></div>
+        <div class="flash-action">
+          <esp-web-install-button id="install-button" manifest="manifests/d1_mini.json">
+            <button slot="activate" class="flash-button">Прошити цю плату</button>
+            <span slot="unsupported" class="unsupported">Цей браузер не підтримує прошивку. Відкрийте сторінку в актуальному Chrome, Edge або Firefox на комп’ютері.</span>
+            <span slot="not-allowed" class="unsupported">Доступ до USB-порту заблоковано. Для Web Serial потрібна опублікована HTTPS-сторінка.</span>
+          </esp-web-install-button>
+        </div>
+      </div>
+      <div id="board-warning" class="warning hidden" role="status"></div>
+
+      <div class="install-instructions">
+        <div class="section-head compact-head"><p class="eyebrow">Прошивка · крок 2</p><h2>Запишіть прошивку</h2></div>
+        <ol class="task-list">
+          <li><b>Під’єднайте плату</b><span>Закрийте Serial Monitor та інші програми, які використовують її порт.</span></li>
+          <li><b>Натисніть «Прошити цю плату»</b><span>У вікні браузера виберіть USB-порт плати або USB–UART адаптера й натисніть Connect.</span></li>
+          <li><b>Зітріть дані старої прошивки</b><span>Для переходу із SvitloBoard 1.x оберіть <strong>Erase device</strong>. Налаштування зі старого EEPROM не переносяться — це усуває проблему з пошкодженими даними після першого запуску.</span></li>
+          <li><b>Не від’єднуйте живлення</b><span>Дочекайтеся повідомлення про успішне завершення. Потім від’єднайте boot-перемички та перезапустіть плату у звичайному режимі.</span></li>
+        </ol>
+        <details>
+          <summary>Як увійти в режим прошивки</summary>
+          <p><strong>D1 mini / NodeMCU:</strong> зазвичай автоматично. Якщо запис не починається, затисніть FLASH, коротко натисніть RST і відпустіть FLASH.</p>
+          <p><strong>ESP32:</strong> затисніть BOOT, коротко натисніть EN або RST, відпустіть BOOT і повторіть підключення.</p>
+          <p><strong>ESP-01:</strong> при вимкненому живленні з’єднайте GPIO0 із GND, потім подайте 3,3 В від USB–UART. TX адаптера під’єднайте до RX плати, RX — до TX.</p>
+          <p><strong>Sonoff Basic R2 / R3:</strong> повністю від’єднайте 230 В і дроти навантаження. Під’єднайте 3V3, RX, TX і GND до USB–UART; утримуйте штатну кнопку під час подачі 3,3 В. Ніколи не підключайте мережеве живлення та USB–UART одночасно.</p>
+        </details>
+      </div>
+    </section>
+
+    <section class="after">
+      <div class="section-head"><p class="eyebrow">Налаштування · крок 1</p><h2>Передайте платі Wi-Fi та ключ</h2><p>Після першого запуску SvitloBoard створює тимчасову точку доступу для локального налаштування.</p></div>
+      <ol class="task-list">
+        <li><b>Знайдіть <code>SvitloBoard-XXXXXX</code></b><span>Під’єднайтеся до цієї мережі з паролем <code>svitlobot</code>. Вона з’являється приблизно через 15 секунд після запуску.</span></li>
+        <li><b>Відкрийте <code>192.168.4.1</code></b><span>Сторінка може відкритися автоматично. Якщо ні — вручну введіть у браузері <code>http://192.168.4.1</code>.</span></li>
+        <li><b>Введіть Wi-Fi 2,4 ГГц</b><span>Оберіть домашню мережу й введіть пароль. ESP-плати не підключаються до мережі, яка працює лише на 5 ГГц.</span></li>
+        <li><b>Вставте ключ СвітлоБота</b><span>Використайте унікальний ключ, отриманий через кнопку «Статус» у @SvitloUkraineBot. За бажанням задайте пароль локальної веб-панелі.</span></li>
+        <li><b>Натисніть «Зберегти й підключитися»</b><span>Точка доступу зникне після успішного підключення. IP-адресу SvitloBoard можна знайти у списку клієнтів вашого роутера.</span></li>
+      </ol>
+    </section>
+
+    <section class="verification">
+      <div class="section-head"><p class="eyebrow">Налаштування · крок 2</p><h2>Перевірте обидва стани</h2><p>Сам факт підключення до Wi-Fi ще не означає, що канал налаштований правильно.</p></div>
+      <ol class="task-list">
+        <li><b>Перевірте стан «світло є»</b><span>У локальній панелі SvitloBoard результат запиту до API має стати успішним. Потім переконайтеся, що СвітлоБот отримав сигнал і канал показує правильний стан.</span></li>
+        <li><b>Вимкніть саме контрольовану розетку</b><span>SvitloBoard має повністю знеструмитися. Зачекайте, поки СвітлоБот обробить відсутність сигналів, і перевірте зміну стану каналу.</span></li>
+        <li><b>Увімкніть розетку знову</b><span>Плата завантажиться, під’єднається до Wi-Fi та відновить сигнали. Переконайтеся, що канал повернувся до стану «світло є».</span></li>
+      </ol>
+      <p class="recovery-note"><strong>Якщо SvitloBoard не може під’єднатися до жодної збереженої мережі,</strong> вона знову відкриє точку доступу <code>SvitloBoard-XXXXXX</code>. Під’єднайтеся до неї та виправте Wi-Fi — збережені налаштування не стираються.</p>
+    </section>
+
+    <section class="troubleshooting">
+      <div class="section-head"><p class="eyebrow">Якщо не запрацювало</p><h2>Перевірте по черзі</h2></div>
+      <div class="trouble-grid">
+        <details><summary>Браузер не показує USB-порт</summary><p>Спробуйте інший кабель для даних і USB-порт, закрийте Serial Monitor. Перевірте драйвер CH340/CP210x. На телефоні прошивка не підтримується.</p></details>
+        <details><summary>Запис не починається</summary><p>Переведіть плату в bootloader за інструкцією вище. Якщо інсталятор показує інше сімейство чипа, зупиніться та оберіть правильну збірку.</p></details>
+        <details><summary>Немає мережі SvitloBoard-XXXXXX</summary><p>Від’єднайте boot-перемичку, зачекайте 15 секунд і один раз перезапустіть плату. Для діагностики відкрийте Serial Monitor на 115200 бод.</p></details>
+        <details><summary>Wi-Fi не підключається</summary><p>Переконайтеся, що доступна мережа 2,4 ГГц, а SSID і пароль введені без помилок. Якщо роутер об’єднує 2,4/5 ГГц, тимчасово створіть окрему мережу 2,4 ГГц.</p></details>
+        <details><summary>Wi-Fi є, але канал не оновлюється</summary><p>Перевірте в локальній панелі результат API, правильність ключа й доступ до інтернету. Ключ не слід публікувати в issue або надсилати стороннім.</p></details>
+        <details><summary>Канал показує відключення, коли світло є</summary><p>Це може бути втрата Wi-Fi або інтернету. Перевірте стабільність роутера та розміщення плати. Якщо обладнання тимчасово несправне, переведіть канал на технічну перерву через СвітлоБот.</p></details>
+        <details><summary>Потрібне повне скидання без доступу до панелі</summary><p>Чотири рази увімкніть живлення плати й щоразу вимкніть його протягом перших 8 секунд. На четвертому запуску залиште живлення ввімкненим: SvitloBoard видалить Wi-Fi, ключ СвітлоБота й пароль локальної панелі та знову відкриє точку доступу. Звичайне перезавантаження або перезапуск після OTA до цього лічильника не зараховуються.</p></details>
+      </div>
+    </section>
+
+  </main>
+  <footer><span>SvitloBoard 2</span><span><a href="https://svitlobot.in.ua/">Проєкт СвітлоБот</a> · <a href="https://github.com/Baskerville42/svitloboard/issues">Повідомити про проблему</a></span></footer>
+  <script src="assets/site.js"></script>
+</body>
+</html>

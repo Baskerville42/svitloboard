@@ -1,0 +1,165 @@
+name: SvitloBoard 2 firmware and installer
+
+on:
+  pull_request:
+    paths:
+      - "firmware/**"
+      - "docs/**"
+      - ".github/workflows/firmware-v2.yml"
+      - ".github/workflows/release.yml"
+  push:
+    branches: [main]
+    tags: ["v2.*"]
+    paths:
+      - "firmware/**"
+      - "docs/**"
+      - ".github/workflows/firmware-v2.yml"
+      - ".github/workflows/release.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: firmware-v2-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contract:
+    name: Verify release contract
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Verify targets, manifests, and security invariants
+        run: python firmware/scripts/verify_release.py
+      - name: Check embedded web UI JavaScript syntax
+        shell: bash
+        run: |
+          perl -0777 -ne 'while (/<script>(.*?)<\/script>/sg) { print "(function(){\n$1\n})();\n" }' firmware/include/WebUi.h | node --check
+
+  build:
+    name: Build ${{ matrix.environment }}
+    needs: contract
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        environment:
+          - esp01_512k
+          - esp01_1m
+          - d1_mini
+          - nodemcuv2
+          - sonoff_basic_r2
+          - sonoff_basic_r3
+          - esp32dev
+          - esp32-c3
+          - esp32-s3
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install pinned PlatformIO
+        run: pip install platformio==6.2.0
+      - name: Resolve firmware version
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version="2.0.0-dev.${GITHUB_SHA::7}"
+          fi
+          echo "SVB_FIRMWARE_VERSION=$version" >> "$GITHUB_ENV"
+          echo "RELEASE_VERSION=$version" >> "$GITHUB_ENV"
+      - name: Compile
+        run: pio run -d firmware -e "${{ matrix.environment }}"
+      - name: Enforce release headroom and stage binaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          env_name="${{ matrix.environment }}"
+          build_dir="firmware/.pio/build/$env_name"
+          mkdir -p dist
+          app_size=$(stat -c%s "$build_dir/firmware.bin")
+          case "$env_name" in
+            esp01_512k) test "$app_size" -le 457000 ;;
+            esp01_1m) test "$app_size" -le 470000 ;;
+            d1_mini|nodemcuv2) test "$app_size" -le 600000 ;;
+            sonoff_basic_r2|sonoff_basic_r3) test "$app_size" -le 470000 ;;
+            *) test "$app_size" -le 1400000 ;;
+          esac
+          cp "$build_dir/firmware.bin" "dist/svitloboard-$env_name.bin"
+          if [[ -f "$build_dir/firmware.factory.bin" ]]; then
+            cp "$build_dir/firmware.factory.bin" "dist/svitloboard-$env_name.factory.bin"
+          fi
+          (cd dist && sha256sum * > "svitloboard-$env_name.sha256")
+      - uses: actions/upload-artifact@v4
+        with:
+          name: firmware-${{ matrix.environment }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 30
+
+  pages:
+    name: Publish browser installer
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: firmware-*
+          path: site/firmware
+          merge-multiple: true
+      - name: Assemble static site
+        shell: bash
+        run: |
+          cp -R docs/. site/
+          version="2.0.0-dev.${GITHUB_SHA::7}"
+          find site/manifests -name '*.json' -exec sed -i "s/2.0.0-dev/$version/g" {} +
+          test -f site/index.html
+          test -f site/firmware/svitloboard-esp01_512k.bin
+          test -f site/firmware/svitloboard-esp32dev.factory.bin
+          python firmware/scripts/verify_release.py --artifacts site/firmware
+      - uses: actions/configure-pages@v5
+        with:
+          enablement: true
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - name: Deploy GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+  release:
+    name: Publish GitHub release
+    if: startsWith(github.ref, 'refs/tags/v2.')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: firmware-*
+          path: release
+          merge-multiple: true
+      - name: Verify release images and checksums
+        run: python firmware/scripts/verify_release.py --artifacts release
+      - uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: release/*
