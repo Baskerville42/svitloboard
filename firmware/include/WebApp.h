@@ -42,8 +42,8 @@ class WebApp {
 #endif
 #if !defined(SVB_PROFILE_MINIMAL)
   void handleSettings();
-  void handleSecurity();
 #endif
+  void handleSecurity();
   void handleExpert();
   void handleScan();
   void handleAction();
@@ -75,10 +75,8 @@ class WebApp {
   bool eraseWifiBeforeRestart_ = false;
   bool wifiReconfigurePending_ = false;
   uint32_t wifiReconfigureAt_ = 0;
-#if !defined(SVB_PROFILE_MINIMAL)
   bool provisioningHandoff_ = false;
   uint32_t provisioningHandoffUntil_ = 0;
-#endif
   bool otaAuthorized_ = false;
   bool otaFailed_ = false;
   bool otaSucceeded_ = false;

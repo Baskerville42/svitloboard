@@ -3,7 +3,7 @@
 #include <Arduino.h>
 
 #ifndef SVB_FIRMWARE_VERSION
-#define SVB_FIRMWARE_VERSION "2.1.0-dev"
+#define SVB_FIRMWARE_VERSION "2.2.0-dev"
 #endif
 
 #ifndef SVB_BOARD_NAME
