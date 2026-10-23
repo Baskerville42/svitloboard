@@ -3,7 +3,7 @@
 #include <Arduino.h>
 
 #ifndef SVB_FIRMWARE_VERSION
-#define SVB_FIRMWARE_VERSION "2.0.0-dev"
+#define SVB_FIRMWARE_VERSION "2.1.0-dev"
 #endif
 
 #ifndef SVB_BOARD_NAME
@@ -49,6 +49,7 @@ constexpr uint32_t kWifiReconfigureDelayMs = 2000;
 constexpr uint32_t kProvisioningApGraceMs = 60000;
 constexpr uint32_t kProvisioningStatusMs = 60000;
 constexpr uint32_t kHttpTimeoutMs = 6500;
+constexpr uint32_t kPostSavePingDelayMs = 2500;
 constexpr uint32_t kValidUnixTime = 1700000000UL;
 constexpr uint8_t kFastBootResetThreshold = 4;
 constexpr uint32_t kFastBootWindowMs = 8000;

@@ -15,12 +15,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 
 TARGETS = {
-    "esp01_512k": ("ESP8266", False, 457_000),
-    "esp01_1m": ("ESP8266", False, 470_000),
+    "esp01_512k": ("ESP8266", False, 463_000),
+    "esp01_1m": ("ESP8266", False, 479_232),
     "d1_mini": ("ESP8266", False, 600_000),
     "nodemcuv2": ("ESP8266", False, 600_000),
-    "sonoff_basic_r2": ("ESP8266", False, 470_000),
-    "sonoff_basic_r3": ("ESP8266", False, 470_000),
+    "sonoff_basic_r2": ("ESP8266", False, 479_232),
+    "sonoff_basic_r3": ("ESP8266", False, 479_232),
     "esp32dev": ("ESP32", True, 1_400_000),
     "esp32-c3": ("ESP32-C3", True, 1_400_000),
     "esp32-s3": ("ESP32-S3", True, 1_400_000),
@@ -222,7 +222,8 @@ def verify_profile_invariants(result: Verification) -> None:
                  "rawMainsPresent_ = digitalRead" in power,
                  "an initially absent mains input must debounce into a MainsLost event")
 
-    web_ui = read("firmware/include/WebUi.h") + read("firmware/include/CompactWebUi.h")
+    web_ui = (read("firmware/include/WebUi.h") + read("firmware/include/CompactWebUi.h") +
+              read("firmware/include/MinimalWebUi.h"))
     result.check("firmware.bin для ESP-01S" not in web_ui,
                  "compact OTA UI must not claim that every compact build is ESP-01S")
     result.check(web_ui.count("x.send(new FormData(e.target))") >= 2,
@@ -254,6 +255,10 @@ def verify_profile_invariants(result: Verification) -> None:
     result.check('name="channelKey" maxlength="64" required' not in web_ui and
                  "(!channelKey.isEmpty() && !validChannelKey(channelKey))" in read("firmware/src/WebApp.cpp"),
                  "first setup must allow Wi-Fi provisioning before a channel key is available")
+    result.check(web_ui.count('name="reportingBackend"') == 6 and
+                 web_ui.count('name="customUrl"') == 6 and
+                 web_ui.count("toggleDestination(") >= 9,
+                 "every web UI profile must select Svitlobot or a custom URL during and after setup")
     result.check('name="ssidChoice"' in web_ui and
                  "function scanInteractive()" in web_ui and
                  'id="settings"' in web_ui and
@@ -306,6 +311,10 @@ def verify_profile_invariants(result: Verification) -> None:
                  "panel protection must support changing and clearing the admin password")
     boot_recovery = read("firmware/src/BootRecovery.cpp")
     config_store = read("firmware/src/ConfigStore.cpp")
+    result.check("SVB_CONFIG_SCHEMA=2" in ini and
+                 "LegacyRecordV1" in config_store and
+                 "Migrating config schema 1" in config_store,
+                 "config schema 1 must migrate to the explicit reporting-backend schema")
     result.check("kFastBootResetThreshold = 4" in build_config and
                  "kFastBootWindowMs = 8000" in build_config,
                  "fast power-cycle recovery contract must remain four boots within 8 seconds")

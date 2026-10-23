@@ -37,6 +37,9 @@ class WebApp {
   void handleConfig();
   void handleSetup();
   void handleWifi();
+#if defined(SVB_PROFILE_MINIMAL)
+  void handleReporting();
+#endif
 #if !defined(SVB_PROFILE_MINIMAL)
   void handleSettings();
   void handleSecurity();

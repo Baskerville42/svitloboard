@@ -4,9 +4,9 @@ from gzip import compress
 from pathlib import Path
 
 
-def generate(project_dir: Path) -> None:
-    source_path = project_dir / "include" / "CompactWebUi.h"
-    output_path = project_dir / "include" / "CompactWebUiGzip.h"
+def generate_one(project_dir: Path, source_name: str, output_name: str) -> None:
+    source_path = project_dir / "include" / source_name
+    output_path = project_dir / "include" / output_name
     source = source_path.read_text(encoding="utf-8")
     start_marker = 'R"HTML('
     end_marker = ')HTML";'
@@ -19,7 +19,7 @@ def generate(project_dir: Path) -> None:
         rows.append("  " + ", ".join(f"0x{byte:02x}" for byte in chunk) + ",")
     generated = (
         "#pragma once\n\n"
-        "// Generated from CompactWebUi.h. Do not edit by hand.\n"
+        f"// Generated from {source_name}. Do not edit by hand.\n"
         "static const uint8_t kWebUiGzip[] PROGMEM = {\n"
         + "\n".join(rows)
         + "\n};\n"
@@ -27,6 +27,11 @@ def generate(project_dir: Path) -> None:
     )
     if not output_path.exists() or output_path.read_text(encoding="utf-8") != generated:
         output_path.write_text(generated, encoding="utf-8")
+
+
+def generate(project_dir: Path) -> None:
+    generate_one(project_dir, "CompactWebUi.h", "CompactWebUiGzip.h")
+    generate_one(project_dir, "MinimalWebUi.h", "MinimalWebUiGzip.h")
 
 
 try:

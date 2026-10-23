@@ -7,6 +7,12 @@
 namespace svb {
 
 constexpr size_t kWifiProfileCount = 3;
+constexpr size_t kCustomUrlSize = 257;
+
+enum class ReportingBackend : uint8_t {
+  Svitlobot = 0,
+  CustomUrl = 1,
+};
 
 #pragma pack(push, 1)
 struct WifiProfile {
@@ -28,8 +34,10 @@ struct AppConfig {
   uint8_t setupComplete;
   uint8_t pingPaused;
   uint8_t lastWifiProfile;
+  uint8_t reportingBackend;
   char deviceName[33];
   char channelKey[65];
+  char customUrl[kCustomUrlSize];
   char adminPassword[33];
   uint16_t pingIntervalSeconds;
   WifiProfile wifi[kWifiProfileCount];
@@ -44,7 +52,12 @@ bool validDeviceName(const String& value);
 bool validSsid(const String& value);
 bool validWifiPassword(const String& value, bool allowEmpty = true);
 bool validChannelKey(const String& value);
+bool validCustomUrl(const String& value);
 bool validAdminPassword(const String& value);
+bool parseReportingBackend(const String& value, ReportingBackend& backend);
+const char* reportingBackendName(const AppConfig& config);
+bool reportingConfigurationValid(const AppConfig& config);
+bool reportingUsesTls(const AppConfig& config);
 String deviceId();
 String accessPointName();
 

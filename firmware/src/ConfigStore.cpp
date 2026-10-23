@@ -3,6 +3,8 @@
 #include <LittleFS.h>
 #include <cstddef>
 #include <cstring>
+#include <memory>
+#include <new>
 
 #include "BuildConfig.h"
 
@@ -38,25 +40,72 @@ bool ConfigStore::load(AppConfig& config) {
     return false;
   }
 
-  Record records[2]{};
-  const bool valid0 = readRecord(kSlotPaths[0], records[0]) && validRecord(records[0]);
-  const bool valid1 = readRecord(kSlotPaths[1], records[1]) && validRecord(records[1]);
-
-  if (!valid0 && !valid1) {
+  // These records are too large for the ESP8266 loop-task stack. Allocate the
+  // scratch space only while loading, then release it before networking starts.
+  std::unique_ptr<RecordBuffer> scratch(new (std::nothrow) RecordBuffer{});
+  if (!scratch) {
     setConfigDefaults(config);
-    activeSlot_ = -1;
-    generation_ = 0;
-    diagnostics_.add(EventLevel::Info, F("No valid v2 config; first setup required"));
+    diagnostics_.add(EventLevel::Error, F("Cannot allocate config load buffer"));
     return false;
   }
 
-  activeSlot_ = valid0 && (!valid1 || generationAfter(records[0].generation, records[1].generation)) ? 0 : 1;
-  const Record& selected = records[activeSlot_];
-  config = selected.config;
-  generation_ = selected.generation;
-  diagnostics_.add(EventLevel::Info, String(F("Loaded config slot ")) + activeSlot_ +
-                                          F(" generation ") + generation_);
-  return true;
+  activeSlot_ = -1;
+  generation_ = 0;
+  bool currentFound = false;
+  for (int8_t slot = 0; slot < 2; ++slot) {
+    Record& record = scratch->current;
+    if (!readRecord(kSlotPaths[slot], record) || !validRecord(record)) continue;
+    if (!currentFound || generationAfter(record.generation, generation_)) {
+      config = record.config;
+      generation_ = record.generation;
+      activeSlot_ = slot;
+      currentFound = true;
+    }
+  }
+  if (currentFound) {
+    diagnostics_.add(EventLevel::Info, String(F("Loaded config slot ")) + activeSlot_ +
+                                            F(" generation ") + generation_);
+    return true;
+  }
+
+  std::unique_ptr<AppConfig> migrated(new (std::nothrow) AppConfig{});
+  if (!migrated) {
+    setConfigDefaults(config);
+    diagnostics_.add(EventLevel::Error, F("Cannot allocate config migration buffer"));
+    return false;
+  }
+
+  bool legacyFound = false;
+  for (int8_t slot = 0; slot < 2; ++slot) {
+    LegacyRecordV1& record = scratch->legacy;
+    if (!readLegacyRecord(kSlotPaths[slot], record) ||
+        !validLegacyRecord(record, *migrated)) {
+      continue;
+    }
+    if (!legacyFound || generationAfter(record.generation, generation_)) {
+      config = *migrated;
+      generation_ = record.generation;
+      activeSlot_ = slot;
+      legacyFound = true;
+    }
+  }
+  if (legacyFound) {
+    scratch.reset();
+    migrated.reset();
+    diagnostics_.add(EventLevel::Info,
+                     String(F("Migrating config schema 1 from slot ")) + activeSlot_);
+    if (!save(config)) {
+      diagnostics_.add(EventLevel::Warning,
+                       F("Config migration could not be persisted; using migrated values"));
+    }
+    return true;
+  }
+
+  setConfigDefaults(config);
+  activeSlot_ = -1;
+  generation_ = 0;
+  diagnostics_.add(EventLevel::Info, F("No valid v2 config; first setup required"));
+  return false;
 }
 
 bool ConfigStore::save(const AppConfig& config) {
@@ -65,23 +114,30 @@ bool ConfigStore::save(const AppConfig& config) {
     return false;
   }
 
-  Record record{};
-  record.magic = kRecordMagic;
-  record.schema = SVB_CONFIG_SCHEMA;
-  record.size = sizeof(Record);
-  record.generation = generation_ + 1;
-  record.config = config;
-  record.crc32 = calculateCrc(reinterpret_cast<const uint8_t*>(&record), offsetof(Record, crc32));
+  // Keep the record off the small ESP8266 loop-task stack, but do not reserve
+  // it permanently: BearSSL needs the recovered heap between settings writes.
+  std::unique_ptr<Record> record(new (std::nothrow) Record{});
+  if (!record) {
+    diagnostics_.add(EventLevel::Error, F("Cannot allocate config save buffer"));
+    return false;
+  }
+  record->magic = kRecordMagic;
+  record->schema = SVB_CONFIG_SCHEMA;
+  record->size = sizeof(Record);
+  record->generation = generation_ + 1;
+  record->config = config;
+  record->crc32 =
+      calculateCrc(reinterpret_cast<const uint8_t*>(record.get()), offsetof(Record, crc32));
 
   const int8_t targetSlot = activeSlot_ == 0 ? 1 : 0;
   LittleFS.remove(kTemporaryPath);
-  if (!writeRecord(kTemporaryPath, record)) {
+  if (!writeRecord(kTemporaryPath, *record)) {
     diagnostics_.add(EventLevel::Error, F("Config write failed; previous slot retained"));
     return false;
   }
 
-  Record verification{};
-  if (!readRecord(kTemporaryPath, verification) || !validRecord(verification)) {
+  memset(record.get(), 0, sizeof(Record));
+  if (!readRecord(kTemporaryPath, *record) || !validRecord(*record)) {
     LittleFS.remove(kTemporaryPath);
     diagnostics_.add(EventLevel::Error, F("Config read-back failed; previous slot retained"));
     return false;
@@ -95,7 +151,7 @@ bool ConfigStore::save(const AppConfig& config) {
   }
 
   activeSlot_ = targetSlot;
-  generation_ = record.generation;
+  generation_ = record->generation;
   diagnostics_.add(EventLevel::Info, String(F("Saved config generation ")) + generation_);
   return true;
 }
@@ -168,6 +224,15 @@ bool ConfigStore::readRecord(const char* path, Record& record) const {
   return bytesRead == sizeof(Record);
 }
 
+bool ConfigStore::readLegacyRecord(const char* path, LegacyRecordV1& record) const {
+  File file = LittleFS.open(path, "r");
+  if (!file || file.size() != sizeof(LegacyRecordV1)) return false;
+  const size_t bytesRead =
+      file.read(reinterpret_cast<uint8_t*>(&record), sizeof(LegacyRecordV1));
+  file.close();
+  return bytesRead == sizeof(LegacyRecordV1);
+}
+
 bool ConfigStore::writeRecord(const char* path, const Record& record) const {
   File file = LittleFS.open(path, "w");
   if (!file) return false;
@@ -231,6 +296,28 @@ bool ConfigStore::validRecord(const Record& record) const {
   }
   return record.crc32 ==
          calculateCrc(reinterpret_cast<const uint8_t*>(&record), offsetof(Record, crc32));
+}
+
+bool ConfigStore::validLegacyRecord(const LegacyRecordV1& record, AppConfig& migrated) const {
+  if (record.magic != kRecordMagic || record.schema != 1 ||
+      record.size != sizeof(LegacyRecordV1) ||
+      record.crc32 != calculateCrc(reinterpret_cast<const uint8_t*>(&record),
+                                   offsetof(LegacyRecordV1, crc32))) {
+    return false;
+  }
+
+  setConfigDefaults(migrated);
+  migrated.setupComplete = record.config.setupComplete;
+  migrated.pingPaused = record.config.pingPaused;
+  migrated.lastWifiProfile = record.config.lastWifiProfile;
+  memcpy(migrated.deviceName, record.config.deviceName, sizeof(migrated.deviceName));
+  memcpy(migrated.channelKey, record.config.channelKey, sizeof(migrated.channelKey));
+  memcpy(migrated.adminPassword, record.config.adminPassword, sizeof(migrated.adminPassword));
+  migrated.pingIntervalSeconds = record.config.pingIntervalSeconds;
+  memcpy(migrated.wifi, record.config.wifi, sizeof(migrated.wifi));
+  migrated.expert = record.config.expert;
+  migrated.reportingBackend = static_cast<uint8_t>(ReportingBackend::Svitlobot);
+  return isConfigSane(migrated);
 }
 
 bool ConfigStore::validBootRecord(const BootRecord& record) const {

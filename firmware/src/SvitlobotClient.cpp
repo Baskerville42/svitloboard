@@ -14,6 +14,24 @@
 #include "RootCa.h"
 
 namespace svb {
+namespace {
+
+int performGet(WiFiClient& client, const String& url, bool& started) {
+  HTTPClient http;
+#if !defined(ESP8266)
+  http.setConnectTimeout(kHttpTimeoutMs);
+#endif
+  http.setTimeout(kHttpTimeoutMs);
+  http.useHTTP10(true);
+  started = http.begin(client, url);
+  if (!started) return 0;
+  http.addHeader(F("User-Agent"), String(F("SvitloBoard/")) + kFirmwareVersion);
+  const int code = http.GET();
+  http.end();
+  return code;
+}
+
+}  // namespace
 
 void SvitlobotClient::begin() {
   nextPingMs_ = millis();
@@ -32,10 +50,23 @@ void SvitlobotClient::loop() {
     return;
   }
 
-  ensureClockStarted();
-  if (!clockReady()) {
-    result_ = Result::ClockNotReady;
+  if (!reportingConfigurationValid(config_)) {
+    result_ = Result::MissingConfiguration;
     return;
+  }
+
+  if (reportingUsesTls(config_)) {
+    ensureClockStarted();
+    if (!clockReady()) {
+      result_ = Result::ClockNotReady;
+      return;
+    }
+  }
+
+  if (offQueued_ && customBackend()) {
+    cancelQueuedOffNotification();
+    diagnostics_.add(EventLevel::Info,
+                     F("OFF notification is not configured for the custom URL backend"));
   }
 
   if (offQueued_) {
@@ -52,10 +83,6 @@ void SvitlobotClient::loop() {
     return;
   }
 
-  if (config_.channelKey[0] == '\0') {
-    result_ = Result::NoKey;
-    return;
-  }
   if (config_.pingPaused) {
     result_ = Result::Paused;
     return;
@@ -63,7 +90,8 @@ void SvitlobotClient::loop() {
 
   const uint32_t earliestAllowed =
       lastAttemptMs_ + static_cast<uint32_t>(kMinimumPingIntervalSeconds) * 1000UL;
-  if ((pingRequested_ || deadlineReached(now, nextPingMs_)) &&
+  const bool requestedPingDue = pingRequested_ && deadlineReached(now, pingRequestAtMs_);
+  if ((requestedPingDue || (!pingRequested_ && deadlineReached(now, nextPingMs_))) &&
       (lastAttemptMs_ == 0 || deadlineReached(now, earliestAllowed))) {
     pingRequested_ = false;
     sendRequest(false);
@@ -72,11 +100,17 @@ void SvitlobotClient::loop() {
 }
 
 void SvitlobotClient::requestPingNow() {
+  requestPingAfter(0);
+}
+
+void SvitlobotClient::requestPingAfter(uint32_t delayMs) {
   pingRequested_ = true;
+  pingRequestAtMs_ = millis() + delayMs;
+  if (delayMs > 0) nextPingMs_ = pingRequestAtMs_;
 }
 
 void SvitlobotClient::queueOffNotification() {
-  if (config_.expert.enabled && config_.expert.offNotificationEnabled) {
+  if (config_.expert.enabled && config_.expert.offNotificationEnabled && !customBackend()) {
     offQueued_ = true;
     offRetryAtMs_ = 0;
     offRetryMs_ = 30000;
@@ -93,6 +127,7 @@ void SvitlobotClient::cancelQueuedOffNotification() {
 }
 
 String SvitlobotClient::statusPageUrl() const {
+  if (customBackend()) return String();
   return String(F("https://")) + kApiHost + F("/status?channel_key=") +
          urlEncode(config_.channelKey);
 }
@@ -102,7 +137,7 @@ const char* SvitlobotClient::resultName() const {
     case Result::Never: return "never";
     case Result::Success: return "success";
     case Result::Paused: return "paused";
-    case Result::NoKey: return "no_key";
+    case Result::MissingConfiguration: return "missing_configuration";
     case Result::NoWifi: return "no_wifi";
     case Result::ClockNotReady: return "clock_not_ready";
     case Result::TlsError: return "tls_error";
@@ -116,57 +151,77 @@ bool SvitlobotClient::clockReady() const {
 }
 
 bool SvitlobotClient::sendRequest(bool off) {
-  if (!wifi_.connected() || config_.channelKey[0] == '\0') return false;
+  if (!wifi_.connected() || !reportingConfigurationValid(config_) ||
+      (off && customBackend())) {
+    return false;
+  }
   lastAttemptMs_ = millis();
   httpCode_ = 0;
 
-  const String path = off ? F("/channelPingOff?channel_key=") : F("/channelPing?channel_key=");
-  const String url = String(F("https://")) + kApiHost + path + urlEncode(config_.channelKey);
+  String url;
+  if (customBackend()) {
+    url = config_.customUrl;
+  } else {
+    const String path =
+        off ? F("/channelPingOff?channel_key=") : F("/channelPing?channel_key=");
+    url = String(F("https://")) + kApiHost + path + urlEncode(config_.channelKey);
+  }
+  const bool tls = url.startsWith("https://");
 
 #if defined(ESP8266)
-  BearSSL::WiFiClientSecure secureClient;
-  // Parsing a PEM trust anchor allocates memory. Keep one parsed copy for the
-  // device lifetime instead of allocating and freeing it on every heartbeat.
-  static BearSSL::X509List trustAnchor(kGoogleTrustServicesRootR4);
-  secureClient.setTrustAnchors(&trustAnchor);
-  secureClient.setTimeout(kHttpTimeoutMs);
+  bool started = false;
+  if (tls) {
+    BearSSL::WiFiClientSecure secureClient;
+    // Parsing a PEM trust anchor allocates memory. Keep one parsed copy for the
+    // device lifetime instead of allocating and freeing it on every heartbeat.
+    static BearSSL::X509List trustAnchor(kGoogleTrustServicesRootR4);
+    secureClient.setTrustAnchors(&trustAnchor);
+    secureClient.setTimeout(kHttpTimeoutMs);
+    httpCode_ = performGet(secureClient, url, started);
+  } else {
+    WiFiClient plainClient;
+    httpCode_ = performGet(plainClient, url, started);
+  }
 #else
-  WiFiClientSecure secureClient;
-  secureClient.setCACert(kGoogleTrustServicesRootR4);
-  // ESP32's secure-client timeout API uses seconds, unlike HTTPClient and
-  // ESP8266's stream timeout, which use milliseconds.
-  constexpr uint32_t secureTimeoutSeconds = (kHttpTimeoutMs + 999U) / 1000U;
-  secureClient.setHandshakeTimeout(secureTimeoutSeconds);
-  secureClient.setTimeout(secureTimeoutSeconds);
+  bool started = false;
+  if (tls) {
+    WiFiClientSecure secureClient;
+    secureClient.setCACert(kGoogleTrustServicesRootR4);
+    // ESP32's secure-client timeout API uses seconds, unlike HTTPClient and
+    // ESP8266's stream timeout, which use milliseconds.
+    constexpr uint32_t secureTimeoutSeconds = (kHttpTimeoutMs + 999U) / 1000U;
+    secureClient.setHandshakeTimeout(secureTimeoutSeconds);
+    secureClient.setTimeout(secureTimeoutSeconds);
+    httpCode_ = performGet(secureClient, url, started);
+  } else {
+    WiFiClient plainClient;
+    httpCode_ = performGet(plainClient, url, started);
+  }
 #endif
-
-  HTTPClient http;
-#if !defined(ESP8266)
-  http.setConnectTimeout(kHttpTimeoutMs);
-#endif
-  http.setTimeout(kHttpTimeoutMs);
-  http.useHTTP10(true);
-  if (!http.begin(secureClient, url)) {
-    result_ = Result::TlsError;
-    diagnostics_.add(EventLevel::Error, F("Cannot initialize HTTPS request"));
+  if (!started) {
+    result_ = tls ? Result::TlsError : Result::HttpError;
+    diagnostics_.add(EventLevel::Error,
+                     tls ? F("Cannot initialize HTTPS request")
+                         : F("Cannot initialize HTTP request"));
     return false;
   }
-  http.addHeader(F("User-Agent"), String(F("SvitloBoard/")) + kFirmwareVersion);
-  httpCode_ = http.GET();
-  http.end();
 
   if (httpCode_ >= 200 && httpCode_ < 300) {
     result_ = Result::Success;
     lastSuccessMs_ = millis();
     diagnostics_.add(EventLevel::Info, off ? F("OFF notification accepted")
-                                           : F("Svitlobot ping accepted"));
+                                           : F("Heartbeat accepted"));
     return true;
   }
 
-  result_ = httpCode_ < 0 ? Result::TlsError : Result::HttpError;
-  diagnostics_.add(EventLevel::Warning,
-                   String(off ? F("OFF request failed: ") : F("Ping failed: ")) + httpCode_);
+  result_ = httpCode_ < 0 && tls ? Result::TlsError : Result::HttpError;
+  String failure = String(off ? F("OFF request failed: ") : F("Ping failed: ")) + httpCode_;
+  diagnostics_.add(EventLevel::Warning, failure);
   return false;
+}
+
+bool SvitlobotClient::customBackend() const {
+  return config_.reportingBackend == static_cast<uint8_t>(ReportingBackend::CustomUrl);
 }
 
 String SvitlobotClient::urlEncode(const char* value) {
