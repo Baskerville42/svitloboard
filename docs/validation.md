@@ -60,6 +60,14 @@ ESP8266/ESP32 handshakes still belong in the hardware matrix.
 - all physical-board rows in [test-plan.md](test-plan.md);
 - authenticated calls with a disposable real Svitlobot channel key, including `channelPingOff`;
 - power-cut recovery during config rotation and OTA;
-- a real GitHub Actions run, Pages deployment, and browser flash over HTTPS;
+- Pages deployment from `main` and a browser flash over its public HTTPS URL;
 - ESP8266 OTA headroom and long-running TLS heap measurements, especially on ESP-01 1 MiB and
   Sonoff Basic R2/R3.
+
+## GitHub Actions evidence
+
+Pull request run `39910060064` completed successfully for commit
+`b18286f4f98eea23ce9f0c7d353616a981abf71f`. The release-contract job and all nine
+PlatformIO matrix jobs passed. GitHub retained one non-expired firmware artifact for every
+declared target. The Pages and release jobs were correctly skipped because the event was a pull
+request; their deployment paths still require a `main` push and a `v2.*` tag respectively.
