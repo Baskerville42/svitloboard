@@ -1,73 +1,88 @@
-# SvitloBoard 2 validation record
+# Звіт про перевірку SvitloBoard 2
 
-This record describes evidence collected from the current local working tree on 2026-10-23. It
-does not replace the physical-board acceptance matrix in [test-plan.md](test-plan.md).
+Цей документ описує докази, зібрані 23 жовтня 2026 року. Він не замінює матрицю
+приймання фізичних плат у [плані тестування](test-plan.md).
 
-## Automated evidence
+## Автоматичні докази
 
-- PlatformIO 6.2.0 compiled all nine declared environments successfully with the pinned ESP8266
-  4.2.1 and ESP32 6.10.0 platforms.
-- `firmware/scripts/verify_release.py` accepted the target matrix, manifests, partition table,
-  security invariants, board feature invariants, staged release images, and their SHA-256 files.
-- Staged-image checks validate the ESP8266 combined-image header, declared flash size, embedded
-  byte count and eboot CRC; ESP32 checks validate chip IDs, bootloader/partition offsets, and that
-  each factory image contains the exact matching OTA application at `0x10000`.
-- The embedded JavaScript from all three local web UI profiles passed `node --check`.
-- Version injection was verified in application images. In particular, the constrained ESP-01
-  512 KiB build with a CI-length `2.0.0-dev.abcdefg` string was 456,288 B, stayed below its
-  457,000 B gate, and a subsequent default build removed the override again.
-- Every OTA-capable application and factory image contains its target-specific `SVB2-OTA:` marker.
-- Sonoff Basic R2/R3 accept only GPIO14 for the optional isolated input; their relay, status LED,
-  button/boot strap, UART, and flash pins are excluded by the target-specific allowlist.
-- A local Pages assembly served all nine manifests and every manifest-referenced firmware URL with
-  HTTP 200; ESP32 manifests resolved to factory images and ESP8266 manifests to application images.
-- The public installer was rendered in the in-app browser and its board picker, instructions,
-  warnings, and troubleshooting controls were exposed to the accessibility tree.
-- The installer dependency is pinned to ESP Web Tools 10.4.0 instead of a floating major tag; its
-  exact module URL returned HTTP 200 during validation.
+- PlatformIO 6.2.0 успішно компілює всі дев'ять середовищ із зафіксованими версіями
+  платформ ESP8266 4.2.1 та ESP32 6.10.0.
+- `firmware/scripts/verify_release.py` перевіряє матрицю цілей, маніфести, таблицю
+  розділів, вимоги безпеки, властивості профілів плат, підготовлені образи випуску та
+  їхні SHA-256.
+- Для об'єднаних образів ESP8266 перевіряються заголовок, заявлений розмір flash,
+  вбудований розмір файлу та CRC eboot. Для ESP32 перевіряються ідентифікатори чипів,
+  розташування завантажувача й таблиці розділів, а також точна копія відповідного OTA-
+  образу за адресою `0x10000` усередині фабричного образу.
+- JavaScript з усіх трьох профілів локальної вебпанелі проходить `node --check`.
+- Перевірено підстановку версії у бінарники. Обмеження розміру для ESP-01 512 КБ
+  застосовується і до версії рядка довжини, яку створює CI. Після додавання `iframe`
+  образ має 456 944 Б і проходить незмінене обмеження 457 000 Б, але запас у цьому
+  профілі критично малий.
+- Кожен OTA-сумісний образ містить власний маркер `SVB2-OTA:` для цільової плати.
+- Sonoff Basic R2/R3 приймають лише GPIO14 для необов'язкового ізольованого входу;
+  контакти реле, індикатора, кнопки/режиму завантаження, UART і flash виключено.
+- Локальна збірка GitHub Pages повертає HTTP 200 для всіх дев'яти маніфестів і кожного
+  образу, на який вони посилаються. Маніфести ESP32 ведуть до фабричних образів,
+  маніфести ESP8266 — до образів програми.
+- Публічний інсталятор розгорнуто за адресою
+  <https://baskerville42.github.io/svitloboard/>. Перевірено доступність сторінки,
+  дев'яти маніфестів і відповідних образів через HTTPS.
+- Залежність інсталятора зафіксована на ESP Web Tools 10.4.0, а не на плаваючій
+  основній версії.
+- Локальна панель містить `iframe` сторінки статусу. Кнопка «Оновити» змінює адресу
+  лише цього `iframe`, має п'ятисекундне блокування й не використовує заборонений для
+  міждоменного вмісту виклик `contentWindow.location.reload()`.
+- Тестовий запит до `https://api.svitlobot.in.ua/status` із недійсним ключем повернув
+  HTTP 400 без заголовків `X-Frame-Options` або `Content-Security-Policy`, що
+  забороняли б показ у міждоменному `iframe`; відповідь також мала
+  `Cache-Control: no-store`. Успішну відповідь із чинним одноразовим ключем ще треба
+  перевірити окремо.
 
-| Target | Application image | Browser factory image |
+Розміри нижче оновлюються після кожної зміни вбудованого інтерфейсу; вони є доказами
+конкретної тестової збірки, а не постійними характеристиками продукту. CI застосовує
+межі з `firmware/scripts/verify_release.py` та `.github/workflows/firmware-v2.yml`.
+
+| Ціль | Образ програми | Фабричний образ для браузера |
 | --- | ---: | ---: |
-| `esp01_512k` | 456,272 B | n/a |
-| `esp01_1m` | 462,112 B | n/a |
-| `d1_mini` | 493,824 B | n/a |
-| `nodemcuv2` | 493,824 B | n/a |
-| `sonoff_basic_r2` | 463,264 B | n/a |
-| `sonoff_basic_r3` | 463,264 B | n/a |
-| `esp32dev` | 1,055,104 B | 1,120,640 B |
-| `esp32-c3` | 1,075,168 B | 1,140,704 B |
-| `esp32-s3` | 1,004,992 B | 1,070,528 B |
+| `esp01_512k` | 456 944 Б | — |
+| `esp01_1m` | 463 200 Б | — |
+| `d1_mini` | 495 072 Б | — |
+| `nodemcuv2` | 495 104 Б | — |
+| `sonoff_basic_r2` | 464 320 Б | — |
+| `sonoff_basic_r3` | 464 320 Б | — |
+| `esp32dev` | 1 056 720 Б | 1 122 256 Б |
+| `esp32-c3` | 1 076 928 Б | 1 142 464 Б |
+| `esp32-s3` | 1 006 592 Б | 1 072 128 Б |
 
-These sizes are development-build evidence, not permanent product specifications. CI enforces the
-limits defined in `firmware/scripts/verify_release.py` and `.github/workflows/firmware-v2.yml`.
+## Спостереження за TLS
 
-## Live TLS observation
-
-An `openssl s_client` handshake to `api.svitlobot.in.ua:443` with SNI for the same hostname
-returned verification code 0. The observed chain was:
+З'єднання `openssl s_client` з `api.svitlobot.in.ua:443` із SNI для того самого імені
+повернуло код перевірки 0. Під час перевірки спостерігався ланцюжок:
 
 ```text
 svitlobot.in.ua -> Google Trust Services WE1 -> GTS Root R4
 ```
 
-The observed leaf certificate was valid from 2026-09-06 through 2026-12-05. Firmware trusts the
-long-lived GTS Root R4, not this rotating leaf certificate or a manually entered fingerprint. This
-observation proves the selected trust anchor matches the live chain on the test date; physical
-ESP8266/ESP32 handshakes still belong in the hardware matrix.
+Кінцевий сертифікат був чинний з 6 вересня до 5 грудня 2026 року. Прошивка довіряє
+довготривалому GTS Root R4, а не змінному кінцевому сертифікату чи вручну введеному
+відбитку. Це доводить відповідність кореня довіри живому ланцюжку на дату перевірки;
+фізичні TLS-з'єднання ESP8266/ESP32 залишаються частиною апаратної матриці.
 
-## Evidence still required
+## Докази, яких ще бракує
 
-- all physical-board rows in [test-plan.md](test-plan.md);
-- authenticated calls with a disposable real Svitlobot channel key, including `channelPingOff`;
-- power-cut recovery during config rotation and OTA;
-- Pages deployment from `main` and a browser flash over its public HTTPS URL;
-- ESP8266 OTA headroom and long-running TLS heap measurements, especially on ESP-01 1 MiB and
-  Sonoff Basic R2/R3.
+- усі рядки фізичних плат із [плану тестування](test-plan.md);
+- автентифіковані запити з одноразовим справжнім ключем каналу СвітлоБота, зокрема
+  `channelPingOff` і сторінка статусу в `iframe`;
+- відновлення після втрати живлення під час зміни конфігурації та OTA;
+- фактичне браузерне прошивання з публічної HTTPS-сторінки;
+- запас пам'яті OTA та довготривалі вимірювання heap під час TLS на ESP8266,
+  особливо ESP-01 1 МБ і Sonoff Basic R2/R3.
 
-## GitHub Actions evidence
+## Докази GitHub Actions
 
-Pull request run `39910060064` completed successfully for commit
-`b18286f4f98eea23ce9f0c7d353616a981abf71f`. The release-contract job and all nine
-PlatformIO matrix jobs passed. GitHub retained one non-expired firmware artifact for every
-declared target. The Pages and release jobs were correctly skipped because the event was a pull
-request; their deployment paths still require a `main` push and a `v2.*` tag respectively.
+Запуск pull request `39910060064` успішно завершився для коміту
+`b18286f4f98eea23ce9f0c7d353616a981abf71f`: перевірка контракту випуску та всі
+дев'ять завдань PlatformIO пройшли. Після злиття запуск `39911068517` для `main`
+успішно зібрав прошивки й розгорнув GitHub Pages. Перевірки поточного pull request
+будуть додані до цього звіту після завершення CI.

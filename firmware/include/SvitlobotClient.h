@@ -29,6 +29,7 @@ class SvitlobotClient {
   void requestPingNow();
   void queueOffNotification();
   void cancelQueuedOffNotification();
+  String statusPageUrl() const;
 
   Result result() const { return result_; }
   const char* resultName() const;

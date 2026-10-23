@@ -87,6 +87,11 @@ void SvitlobotClient::cancelQueuedOffNotification() {
   diagnostics_.add(EventLevel::Info, F("Stale OFF notification cancelled after mains recovery"));
 }
 
+String SvitlobotClient::statusPageUrl() const {
+  return String(F("https://")) + kApiHost + F("/status?channel_key=") +
+         urlEncode(config_.channelKey);
+}
+
 const char* SvitlobotClient::resultName() const {
   switch (result_) {
     case Result::Never: return "never";

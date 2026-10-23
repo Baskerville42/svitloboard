@@ -1,54 +1,62 @@
-# Expert OFF input: hardware and safety
+# Експертний вхід OFF: обладнання та безпека
 
-> **Danger: mains voltage can kill, start a fire, and destroy every connected device.** This guide
-> describes only the low-voltage side of an isolated, certified sensing module. It is not a wiring
-> plan for 230 V. Have all mains-side work selected and installed by a qualified electrician and
-> follow local electrical rules.
+> **Небезпека: мережева напруга може вбити, спричинити пожежу й знищити все
+> під'єднане обладнання.** Тут описано лише низьковольтну сторону ізольованого
+> сертифікованого модуля. Це не схема підключення 230 В. Добір і монтаж мережевої
+> частини має виконувати кваліфікований електрик відповідно до місцевих правил.
 
-## What the firmware expects
+## Який сигнал очікує прошивка
 
-The board needs a stable digital signal that means “external mains is present.” The ESP board,
-router, and Internet uplink must stay powered from a UPS long enough to send `channelPingOff`.
-Measuring the ESP supply or assuming that load current equal to zero means an outage is incorrect.
+Платі потрібен стабільний цифровий сигнал «зовнішня електромережа присутня». ESP,
+роутер та інтернет-обладнання повинні живитися від резервного джерела достатньо довго,
+щоб надіслати `channelPingOff`. Вимірювати живлення самої ESP або вважати нульовий
+струм навантаження ознакою аварії неправильно.
 
-Use a ready-made module with documented galvanic isolation and a logic-level output compatible
-with 3.3 V. The output presented to the ESP must never exceed the selected board's GPIO limits.
-Do not connect a resistor divider, optocoupler assembled on a breadboard, relay coil, or mains wire
-directly to GPIO.
+Використовуйте готовий модуль із задокументованою гальванічною ізоляцією та логічним
+виходом, сумісним із 3,3 В. Сигнал на ESP ніколи не повинен перевищувати допустимий
+рівень обраного GPIO. Не підключайте до GPIO резистивний дільник, зібраний на макетній
+платі оптрон, обмотку реле або мережевий провід.
 
-## Low-voltage connection
+## Низьковольтне підключення
 
-With the entire installation disconnected from mains, connect only the module's isolated output:
+Коли вся установка від'єднана від мережі, під'єднайте лише ізольований вихід модуля:
 
 ```text
-isolated module logic OUT  ─── selected GPIO
-isolated module logic GND  ─── ESP GND
-isolated module logic VCC  ─── module's documented 3.3 V supply (only if supported)
+логічний OUT ізольованого модуля ─── обраний GPIO
+логічний GND ізольованого модуля ─── GND плати ESP
+логічний VCC ізольованого модуля ─── задокументоване живлення 3,3 В (якщо підтримується)
 ```
 
-Some modules have an open-collector output. For those, enable `INPUT_PULLUP` only when the module's
-documentation explicitly supports it, then choose `LOW` as the “mains present” level if appropriate.
-Test the logic state using an isolated bench source before any mains-side installation.
+Деякі модулі мають вихід із відкритим колектором. Для них вмикайте `INPUT_PULLUP`
+лише коли документація модуля це дозволяє, а рівень «мережа присутня» за потреби
+встановіть у `LOW`. До монтажу мережевої частини перевірте логічний рівень від
+ізольованого лабораторного джерела.
 
-## Firmware setup
+## Налаштування прошивки
 
-1. Open **Expert settings → Power input**.
-2. Enable expert hardware and immediate OFF notification.
-3. Select the actual GPIO number, not a board silk-screen alias such as `D2`.
-4. Select the level that means mains is present and a debounce interval (1.5 s default).
-5. Prefer saving while the external mains signal is present. If the board starts from backup power
-   while the signal already reports an outage, it deliberately emits one OFF event after debounce.
-6. Disconnect only the sensed mains source while the UPS remains active and verify one OFF request
-   in diagnostics. Restore mains and verify that a queued stale OFF request is cancelled.
+1. Відкрийте **Експертні налаштування живлення**.
+2. Увімкніть експертне обладнання та негайне повідомлення `OFF`.
+3. Вкажіть фактичний номер GPIO, а не позначення на платі на зразок `D2`.
+4. Оберіть рівень, що означає наявність мережі, та час фільтрації дребезгу
+   (типово 1,5 с).
+5. Бажано зберігати налаштування, коли зовнішній сигнал показує наявність живлення.
+   Якщо плата запуститься від резервного джерела, коли сигнал уже показує аварію,
+   після фільтрації вона навмисно створить одну подію `OFF`.
+6. Вимкніть лише контрольоване джерело мережі, залишивши UPS увімкненим, і перевірте
+   один запит `OFF` у діагностиці. Відновіть мережу й переконайтеся, що застарілий
+   запит `OFF` у черзі скасовано.
 
-Generic ESP8266 builds permit only GPIO 4, 5, 12, 13, or 14 in this feature. GPIO 0, 2, and 15 are
-boot straps; GPIO 1/3 are UART; GPIO 6-11 are flash. Sonoff Basic R2/R3 builds use a stricter
-GPIO14-only allowlist: GPIO12 drives the relay, GPIO13 drives the status LED, and GPIO0 is the
-button/boot strap. This is a firmware guard, not yet the promised Sonoff DIY wiring design; verify
-the exact board revision before soldering. ESP-01/ESP-01S has no recommended supported pin for this
-feature. Use D1 mini, NodeMCU, the guarded Sonoff GPIO14 path, or a suitable ESP32 board instead.
+Типові збірки ESP8266 дозволяють для цієї функції лише GPIO 4, 5, 12, 13 або 14.
+GPIO 0, 2 і 15 визначають режим завантаження, GPIO 1/3 — UART, GPIO 6–11 зайняті
+flash-пам'яттю. Для Sonoff Basic R2/R3 діє суворіше правило: дозволено лише GPIO14;
+GPIO12 керує реле, GPIO13 — індикатором, GPIO0 — кнопкою та режимом завантаження.
+Це лише захисне обмеження прошивки, а не обіцяна DIY-схема Sonoff. Перед паянням
+перевірте точну ревізію плати. Для ESP-01/ESP-01S рекомендованого безпечного контакту
+немає — використовуйте D1 mini, NodeMCU, захищений шлях GPIO14 на Sonoff або придатну
+плату ESP32.
 
-ESP32 variants use separate conservative allowlists. They exclude boot straps, flash/PSRAM,
-native USB, console UART, and known onboard peripherals for the exact reference target. The local
-panel reports the accepted list when it rejects a setting. A pin being accepted by the firmware
-does not prove that an arbitrary clone leaves it unconnected; verify the exact board schematic.
+Для різновидів ESP32 використовуються окремі консервативні списки. З них виключено
+контакти режиму завантаження, flash/PSRAM, USB, консольний UART та відомі вбудовані
+компоненти конкретної еталонної плати. Якщо параметр відхилено, локальна панель
+покаже дозволений список. Те, що прошивка прийняла GPIO, не доводить, що довільний
+клон не використовує його для іншої функції — звіртеся зі схемою саме своєї плати.

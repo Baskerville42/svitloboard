@@ -47,6 +47,7 @@ void WebApp::registerRoutes() {
     server_.send_P(200, "text/html; charset=utf-8", kWebUi);
   });
   server_.on("/api/status", HTTP_GET, [this]() { handleStatus(); });
+  server_.on("/status-frame", HTTP_GET, [this]() { handleStatusFrame(); });
   server_.on("/api/config", HTTP_GET, [this]() { handleConfig(); });
   server_.on("/api/setup", HTTP_POST, [this]() { handleSetup(); });
   server_.on("/api/wifi", HTTP_POST, [this]() { handleWifi(); });
@@ -61,6 +62,17 @@ void WebApp::registerRoutes() {
   server_.on("/generate_204", HTTP_GET, [this]() { handleNotFound(); });
   server_.on("/hotspot-detect.html", HTTP_GET, [this]() { handleNotFound(); });
   server_.onNotFound([this]() { handleNotFound(); });
+}
+
+void WebApp::handleStatusFrame() {
+  if (!authorize(false)) return;
+  if (!config_.setupComplete || config_.channelKey[0] == '\0') {
+    sendError(409, F("Setup is incomplete"));
+    return;
+  }
+  server_.sendHeader(F("Cache-Control"), F("no-store"));
+  server_.sendHeader(F("Location"), api_.statusPageUrl(), true);
+  server_.send(302, "text/plain", "");
 }
 
 void WebApp::handleStatus() {
