@@ -1,52 +1,61 @@
-# SvitloBoard 2 firmware
+# Прошивка SvitloBoard 2
 
-This directory contains the complete SvitloBoard 2 firmware. Version 1 source is not a build
-dependency and remains available only in Git history and earlier releases.
+Ця директорія містить повну прошивку SvitloBoard 2. Вихідний код версії 1 не є
+залежністю збірки й доступний лише в історії Git та попередніх випусках.
 
-## Current behavior
+## Поточна поведінка
 
-- first boot and explicit factory reset start `SvitloBoard-XXXXXX` access point;
-- the access point password is `svitlobot`;
-- the captive web UI stores a primary Wi-Fi network, channel key, and optional local
-  administrator password;
-- three Wi-Fi profiles are tried immediately, last-known-good first, with bounded attempts,
-  exponential retry backoff, and a recovery AP when all profiles are unavailable;
-- API availability never causes Wi-Fi profile churn;
-- settings use two CRC-checked, generation-numbered LittleFS slots;
-- four genuine power-on starts, each interrupted within eight seconds, erase a completed setup;
-  software restarts, OTA restarts, and watchdog resets do not increment this recovery counter;
-- HTTPS uses hostname verification, current time from NTP, and the GTS Root R4 trust anchor;
-- normal pings are limited to 30 seconds or slower (60 seconds by default);
-- OTA rejects binaries that lack the current board target marker; this prevents common accidental
-  cross-board uploads but is not a cryptographic signature;
-- AJAX UI, diagnostics, and an opt-in isolated digital mains input are available when enabled by
-  the build profile.
+- перший запуск і явне скидання до заводських налаштувань запускають точку доступу
+  `SvitloBoard-XXXXXX`;
+- пароль точки доступу — `svitlobot`;
+- локальна вебпанель зберігає основну Wi-Fi мережу, ключ каналу та необов'язковий
+  пароль адміністратора;
+- три Wi-Fi профілі перевіряються одразу, починаючи з останнього успішного; кожна
+  спроба обмежена в часі, повтори мають експоненційну затримку, а за недоступності
+  всіх профілів вмикається резервна точка доступу;
+- недоступність API не спричиняє перемикання між Wi-Fi профілями;
+- налаштування зберігаються у двох слотах LittleFS із CRC та номером покоління;
+- чотири справжні ввімкнення живлення, кожне з яких перервано протягом перших восьми
+  секунд, стирають завершене налаштування; програмні перезапуски, OTA та watchdog
+  не збільшують цей лічильник;
+- HTTPS перевіряє ім'я сервера, використовує час із NTP та кореневий сертифікат
+  GTS Root R4;
+- звичайні сигнали надсилаються не частіше ніж раз на 30 секунд, типове значення —
+  раз на 60 секунд;
+- OTA відхиляє бінарники без маркера поточної цільової плати; це захищає від
+  поширених випадкових помилок, але не є криптографічним підписом;
+- AJAX-інтерфейс, діагностика та необов'язковий ізольований цифровий вхід доступні
+  лише у профілях, де їх увімкнено;
+- розділ «Перевірка статусу» показує сторінку СвітлоБота в `iframe`; кнопка
+  «Оновити» перезавантажує лише цей блок і має п'ятисекундне обмеження частоти.
 
-## Interface profiles
+## Профілі інтерфейсу
 
-Flash capacity determines the local-panel feature set; network failover, validated settings, and
-verified Svitlobot HTTPS remain firmware behavior rather than browser-page behavior.
+Набір можливостей локальної панелі залежить від обсягу flash-пам'яті. Перемикання
+мереж, перевірене зберігання та HTTPS-зв'язок зі СвітлоБотом працюють незалежно від
+вигляду сторінки.
 
-| Profile | Targets | Local panel |
+| Профіль | Цільові плати | Локальна панель |
 | --- | --- | --- |
-| Minimal | ESP-01 512 KiB | first setup, live status, recovery Wi-Fi correction; no OTA or expert GPIO |
-| Compact | ESP-01/ESP-01S 1 MiB, Sonoff Basic R2/R3 | first setup, three Wi-Fi profiles, status, OTA |
-| Standard | D1 mini, NodeMCU v2, ESP32 targets | full settings, actions, diagnostics, OTA, expert input |
+| Мінімальний | ESP-01 512 КБ | перше налаштування, статус, виправлення основної Wi-Fi мережі; без OTA та експертного GPIO |
+| Компактний | ESP-01/ESP-01S 1 МБ, Sonoff Basic R2/R3 | перше налаштування, три Wi-Fi профілі, статус, OTA |
+| Стандартний | D1 mini, NodeMCU v2, плати ESP32 | усі налаштування, дії, діагностика, OTA, експертний вхід |
 
-The compact and minimal profiles intentionally omit nonessential controls to preserve application
-and OTA headroom. Factory reset by four short physical power cycles remains available on every
-target after setup. ESP-01/ESP-01S builds also omit expert GPIO entirely because their exposed
-GPIO0/GPIO2 pins affect boot mode and are not accepted for this feature.
+Компактний і мінімальний профілі навмисно не містять другорядних елементів, щоб
+залишити місце для програми та OTA. Скидання чотирма короткими циклами фізичного
+живлення доступне після налаштування на кожній платі. Збірки ESP-01/ESP-01S також
+не мають експертного GPIO: доступні GPIO0/GPIO2 впливають на режим завантаження і
+не дозволені для цієї функції.
 
-## Build
+## Збірка
 
-Install PlatformIO Core and run the default build. It compiles all nine release targets:
+Встановіть PlatformIO Core і запустіть типову збірку всіх дев'яти цілей:
 
 ```sh
 pio run -d firmware
 ```
 
-Useful individual environments:
+Окремі середовища:
 
 ```sh
 pio run -d firmware -e esp01_512k
@@ -60,24 +69,27 @@ pio run -d firmware -e esp32-c3
 pio run -d firmware -e esp32-s3
 ```
 
-`esp01_512k` is a deliberately reduced, serial-install profile without OTA or expert GPIO.
-Whether it remains a supported release target is determined by the CI size gate and hardware
-tests; TLS is not removed to make an oversized build appear successful.
+`esp01_512k` — навмисно урізаний профіль для встановлення через послідовний порт,
+без OTA та експертного GPIO. Подальша підтримка залежить від обмеження розміру в CI
+та фізичних випробувань; TLS не вимикається заради меншого бінарника.
 
-`sonoff_basic_r2` and `sonoff_basic_r3` target the stock ESP8285 with 1 MiB flash. SvitloBoard
-forces the onboard relay off and does not expose switching controls; these targets currently
-behave only as presence indicators. Any future R2 battery and isolated mains-sensor conversion
-requires a separate hardware design and safety guide.
+`sonoff_basic_r2` і `sonoff_basic_r3` призначені для штатного ESP8285 з 1 МБ
+flash-пам'яті. SvitloBoard примусово утримує вбудоване реле вимкненим і не надає
+елементів керування ним: ці плати працюють лише як індикатори доступності. Майбутня
+модифікація R2 з акумулятором та ізольованим датчиком потребує окремої перевіреної
+схеми й інструкції з безпеки.
 
-## Safety
+## Безпека
 
-The expert mains input is a **digital low-voltage input only**. Never connect 230 V, a resistor
-divider, or any non-isolated circuit directly to an ESP board. Use a certified isolated sensing
-module, put the router/ONT and board on backup power, and have mains wiring installed by a
-qualified electrician. `channelPingOff` reports an outage; it does not switch or disconnect mains.
+Експертний вхід живлення — це **лише цифровий низьковольтний вхід**. Ніколи не
+підключайте 230 В, резистивний дільник або неізольовану схему безпосередньо до ESP.
+Використовуйте сертифікований ізольований модуль, забезпечте резервне живлення плати,
+роутера й ONT, а роботи з мережевою напругою доручайте кваліфікованому електрику.
+`channelPingOff` повідомляє про зникнення живлення, але нічого не перемикає і не
+від'єднує.
 
-See [docs/architecture.md](../docs/architecture.md),
-[docs/hardware-power-input.md](../docs/hardware-power-input.md), and
-[docs/roadmap.md](../docs/roadmap.md). The release acceptance procedure is in
-[docs/test-plan.md](../docs/test-plan.md), with current automated evidence in
-[docs/validation.md](../docs/validation.md).
+Додатково дивіться [опис архітектури](../docs/architecture.md),
+[вимоги до входу живлення](../docs/hardware-power-input.md) і
+[план розвитку](../docs/roadmap.md). Процедура приймання випуску наведена у
+[плані тестування](../docs/test-plan.md), а зібрані автоматичні докази — у
+[звіті про перевірку](../docs/validation.md).

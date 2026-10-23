@@ -33,6 +33,7 @@ class WebApp {
  private:
   void registerRoutes();
   void handleStatus();
+  void handleStatusFrame();
   void handleConfig();
   void handleSetup();
   void handleWifi();

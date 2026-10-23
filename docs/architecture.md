@@ -1,87 +1,100 @@
-# SvitloBoard 2 architecture
+# Архітектура SvitloBoard 2
 
-SvitloBoard 2 is a new firmware with its own behavior contract and module boundaries. Version 1
-behavior informed the product requirements but its source is not a dependency and remains only in
-Git history. Tasmota is an engineering reference: proven algorithms may be adapted with
-provenance, but the project is not a Tasmota fork or skin.
+SvitloBoard 2 — нова прошивка з власним контрактом поведінки та чіткими межами
+модулів. Поведінка версії 1 використана як продуктова вимога, але її вихідний код
+не є залежністю і залишається лише в історії Git.
 
-## Runtime flow
+## Послідовність роботи
 
 ```text
-boot
-  ├─ ConfigStore: mount LittleFS, validate both records, choose newest generation
-  ├─ BootRecovery: count only fast physical power cycles; clear after eight stable seconds
-  ├─ WifiManager: try last-known-good, primary, then backups
-  │    └─ all unavailable → AP+STA recovery mode with bounded exponential retry
-  ├─ WebApp: captive setup and local AJAX API
-  ├─ SvitlobotClient: NTP → verified TLS → bounded ping cadence
-  └─ PowerMonitor: optional isolated digital input → debounced OFF event,
-       including an already-absent input at boot
+запуск
+  ├─ ConfigStore: монтує LittleFS, перевіряє обидва записи, обирає найновіше покоління
+  ├─ BootRecovery: рахує лише швидкі фізичні цикли живлення; очищає лічильник через 8 с
+  ├─ WifiManager: перевіряє останню успішну, основну, потім резервні мережі
+  │    └─ усі недоступні → режим AP+STA з обмеженою експоненційною затримкою повторів
+  ├─ WebApp: перше налаштування та локальний AJAX API
+  ├─ SvitlobotClient: NTP → перевірений TLS → сигнали з обмеженою частотою
+  └─ PowerMonitor: необов'язковий ізольований цифровий вхід → фільтр дребезгу → подія OFF,
+       зокрема коли під час запуску вхід уже показує відсутність живлення
 ```
 
-All periodic work is driven by `loop()` and rollover-safe deadlines. A failed Svitlobot request
-does not cause Wi-Fi roaming. Wi-Fi association, service reachability, TLS, and HTTP status are
-separate diagnostic states.
+Усі періодичні операції виконує `loop()` із таймерами, безпечними до переповнення.
+Невдалий запит до СвітлоБота не спричиняє перемикання Wi-Fi мережі. Підключення до
+Wi-Fi, доступність сервісу, TLS і код HTTP — окремі діагностичні стани.
 
-## Configuration durability
+## Надійність конфігурації
 
-Each record contains a magic value, schema, byte size, generation, fixed-width payload, and CRC32.
-Writes always target the inactive slot, are read back and validated, and only then replace that
-slot. The last valid generation remains readable after an interrupted write. Heartbeats and status
-polling never write flash; only explicit configuration changes and a changed last-known-good Wi-Fi
-profile do.
+Кожен запис містить сигнатуру, версію схеми, розмір, номер покоління, поля фіксованої
+довжини та CRC32. Запис завжди виконується у неактивний слот, після чого зчитується й
+перевіряється. Лише після успішної перевірки він стає новою актуальною версією. Якщо
+живлення зникне під час запису, попереднє коректне покоління залишиться доступним.
+Сигнали присутності й опитування статусу не записують flash; запис відбувається лише
+після явної зміни налаштувань або зміни останнього успішного Wi-Fi профілю.
 
-The v1 EEPROM struct is not read. A first v2 boot starts setup without interpreting erased or
-arbitrary bytes as a C struct. This eliminates the v1 factory-reset loop instead of migrating its
-unsafe layout into the new architecture.
+Структура EEPROM версії 1 не читається. Перший запуск версії 2 відкриває налаштування,
+не трактуючи стерті чи випадкові байти як C-структуру. Так усувається цикл заводського
+скидання старої версії замість перенесення небезпечного формату в нову архітектуру.
 
-The recovery counter is separate from configuration and also uses two generation-numbered,
-CRC-checked LittleFS records. Only a platform-reported power-on reset increments it. Four starts
-that are each interrupted before eight seconds trigger a factory reset; eight seconds of stable
-uptime clears the counter. OTA, software, exception, and watchdog resets are deliberately ignored
-so an update or crash loop cannot erase credentials.
+Лічильник аварійного відновлення відокремлений від конфігурації й також використовує
+два записи LittleFS із поколінням та CRC. Його збільшує лише підтверджене платформою
+ввімкнення живлення. Чотири запуски, перервані раніше ніж через вісім секунд,
+спричиняють заводське скидання; вісім секунд стабільної роботи очищають лічильник.
+OTA, програмний перезапуск, виняток і watchdog навмисно ігноруються, щоб оновлення чи
+цикл аварій не стерли облікові дані.
 
-## Wi-Fi policy
+## Політика Wi-Fi
 
-- primary plus two backup profiles;
-- an immediate first attempt during boot;
-- 12-second bounded association attempts;
-- last-known-good first, then each enabled profile once;
-- recovery AP while retrying after a complete failed cycle;
-- exponential retry delay capped at five minutes;
-- no reconnect merely because DNS, TLS, or the API is down;
-- candidate settings are length-validated before they can replace a stored record.
+- основна та дві резервні мережі;
+- перша спроба одразу під час запуску;
+- не більше 12 секунд на одну спробу підключення;
+- спочатку остання успішна мережа, далі кожен увімкнений профіль по одному разу;
+- резервна точка доступу після повного невдалого циклу;
+- експоненційна затримка повторів із межею п'ять хвилин;
+- жодного перемикання лише через недоступність DNS, TLS або API;
+- перевірка довжини кандидатних налаштувань до заміни збереженого запису.
 
-A future hardware test suite must still measure association, DHCP, router loss, and failback on
-real ESP-01, ESP8266 dev boards, and every released ESP32 target.
+Фізичні випробування ще мають виміряти час підключення, DHCP, втрату роутера та
+повернення до пріоритетної мережі на ESP-01, платах ESP8266 і кожній опублікованій
+цілі ESP32.
 
-## HTTPS and API cadence
+## HTTPS і частота API-запитів
 
-The client verifies the hostname and the Google Trust Services R4 root, and waits for NTP before
-TLS validation. There is no leaf-certificate fingerprint and no `setInsecure()` fallback. Requests
-have a 6.5-second bound. Normal pings default to 60 seconds and cannot be manually forced more
-often than every 30 seconds. OFF retry starts at 30 seconds and backs off to five minutes.
+Клієнт перевіряє ім'я сервера та ланцюжок до Google Trust Services R4 і чекає на NTP
+перед TLS-перевіркою. Відбиток кінцевого сертифіката не закріплюється, а небезпечного
+резервного режиму `setInsecure()` немає. Запит обмежений 6,5 секунди. Типовий інтервал
+сигналів — 60 секунд, а примусово надіслати їх частіше ніж раз на 30 секунд не можна.
+Повтор `OFF` починається з 30 секунд і збільшується до п'яти хвилин.
 
-The root certificate expires in 2036, but certificate-chain behavior is checked in CI/release
-maintenance before then. A CA update is firmware maintenance, not an expert UI setting.
+Кореневий сертифікат чинний до 2036 року, але поведінку ланцюжка перевіряють у CI та
+під час підготовки випусків. Оновлення CA — обслуговування прошивки, а не параметр
+експертного інтерфейсу.
 
-## Local web security
+## Безпека локальної вебпанелі
 
-The setup portal exposes no stored passwords or channel key. After setup, an optional HTTP Basic
-administrator password protects the page and APIs. Mutating calls also require a custom request
-header, preventing ordinary cross-origin HTML forms from triggering configuration or reset.
+Портал першого налаштування не повертає збережені паролі або ключ каналу. Після
+налаштування сторінку й API може захищати необов'язковий пароль адміністратора через
+HTTP Basic. Запити, що змінюють стан, додатково вимагають спеціальний заголовок, тому
+звичайна стороння HTML-форма не може спричинити конфігурацію чи скидання.
 
-This protects a trusted local network; it is not equivalent to local HTTPS. Users should set the
-administrator password and avoid hostile shared networks.
+Маршрут `/status-frame` також проходить локальну авторизацію і лише після цього
+переспрямовує `iframe` на сторінку статусу СвітлоБота з URL-кодованим ключем. Сам ключ
+не повертається через `/api/config`. Кнопка в браузері перезавантажує тільки `iframe`
+і не дозволяє повторне натискання протягом п'яти секунд.
 
-## OTA model
+Цього достатньо для довіреної локальної мережі, але це не рівнозначно локальному
+HTTPS. Варто встановити пароль адміністратора й не користуватися ворожими спільними
+мережами.
 
-ESP32 uses two 1.5 MiB application partitions. ESP8266 OTA is enabled only when the selected flash
-layout leaves enough staging space. ESP-01 512 KiB is serial-install only. Browser factory images
-and local OTA application images are distinct artifacts on ESP32.
+## Модель OTA
 
-Current OTA validates the platform image using the Arduino core and requires a SvitloBoard target
-marker embedded in the uploaded binary. This prevents common accidental cross-board uploads, such
-as installing a D1 mini image on a Sonoff, but it is not a cryptographic signature and is not a
-security boundary. Signed release verification and ESP32 boot rollback are release blockers before
-declaring 2.0 production-stable; see the roadmap.
+ESP32 використовує два розділи програми по 1,5 МБ. На ESP8266 OTA увімкнено лише для
+розміток flash, де є місце для проміжного образу. ESP-01 512 КБ оновлюється тільки
+через послідовний порт. Для ESP32 фабричний образ браузерного встановлення та образ
+локального OTA — різні файли.
+
+Поточне OTA покладається на перевірку формату в Arduino Core і вимагає маркер цільової
+плати SvitloBoard усередині бінарника. Це запобігає типовим випадковим помилкам,
+наприклад завантаженню образу D1 mini на Sonoff, але маркер не є криптографічним
+підписом або межею безпеки. Підписані метадані випуску та підтвердження відкату ESP32
+залишаються обов'язковими перед оголошенням версії 2 стабільною; дивіться
+[план розвитку](roadmap.md).

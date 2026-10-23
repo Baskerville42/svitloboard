@@ -235,6 +235,15 @@ def verify_profile_invariants(result: Verification) -> None:
     result.check(web_ui.count("renderedGeneration") >= 4 and
                  web_ui.count("document.activeElement.matches('input,select,textarea')") >= 2,
                  "AJAX refresh must not rebuild compact or full forms while the user is editing")
+    result.check(web_ui.count('<iframe id=') == 3 and
+                 web_ui.count('>Оновити</button>') >= 4,
+                 "every web UI profile must include the status iframe and refresh button")
+    result.check(web_ui.count("statusRefreshAfter=n+5000") == 2 and
+                 "t=n+5000" in web_ui and
+                 web_ui.count("src='/status-frame?refresh='+n") == 3,
+                 "status iframe refresh must enforce the agreed five-second cooldown")
+    result.check("contentWindow.location.reload" not in web_ui,
+                 "cross-origin status iframe must be refreshed by replacing its URL")
 
     build_config = read("firmware/include/BuildConfig.h")
     boot_recovery = read("firmware/src/BootRecovery.cpp")
@@ -261,6 +270,13 @@ def verify_profile_invariants(result: Verification) -> None:
     result.check("inspectOtaChunk(upload.buf, upload.currentSize)" in web_app and
                  "!otaMarkerFound_" in web_app,
                  "OTA must reject an image without the current board compatibility marker")
+    svitlobot_client = read("firmware/src/SvitlobotClient.cpp")
+    result.check('server_.on("/status-frame", HTTP_GET' in web_app and
+                 "api_.statusPageUrl()" in web_app,
+                 "status iframe route must authenticate and redirect through SvitlobotClient")
+    result.check('F("/status?channel_key=")' in svitlobot_client and
+                 "urlEncode(config_.channelKey)" in svitlobot_client,
+                 "status page URL must contain a URL-encoded channel key")
 
 
 def verify_manifests(result: Verification) -> None:
@@ -348,6 +364,26 @@ def verify_security_and_site(result: Verification) -> None:
                  "trusted root certificate is missing")
     result.check("static BearSSL::X509List trustAnchor" in source,
                  "ESP8266 must reuse its parsed trust anchor across HTTPS requests")
+
+    result.check((ROOT / "LICENSE").is_file(), "root MIT license is missing")
+    result.check(not (ROOT / "firmware/LICENSE").exists() and
+                 not (ROOT / "firmware/NOTICE.md").exists(),
+                 "firmware must not carry a second license or provenance notice")
+    documentation = "\n".join(
+        read(path)
+        for path in (
+            "README.md",
+            "firmware/README.md",
+            "docs/architecture.md",
+            "docs/hardware-power-input.md",
+            "docs/roadmap.md",
+            "docs/test-plan.md",
+            "docs/validation.md",
+        )
+    ).lower()
+    for forbidden in ("tas" + "mota", "g" + "pl"):
+        result.check(forbidden not in documentation,
+                     f"removed project reference remains in documentation: {forbidden}")
 
     html = read("docs/index.html")
     result.check("esp-web-tools@10.4.0/" in html,

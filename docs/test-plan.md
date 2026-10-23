@@ -1,91 +1,108 @@
-# SvitloBoard 2 release test plan
+# План тестування випуску SvitloBoard 2
 
-Compilation is necessary but does not prove that radio, flash layout, USB boot mode, or
-power-loss recovery work on a physical board. A release can be marked production-stable only
-after this checklist is completed for every published target.
+Успішна компіляція не доводить, що радіомодуль, розмітка flash, режим USB-завантаження
+або відновлення після втрати живлення працюють на фізичній платі. Випуск можна назвати
+стабільним лише після виконання цього переліку для кожної опублікованої цілі.
 
-## Hardware matrix
+## Матриця обладнання
 
-| Target | Reference hardware | Flash | Initial install | OTA | Status |
+| Ціль | Еталонне обладнання | Flash | Перше встановлення | OTA | Стан |
 | --- | --- | ---: | --- | --- | --- |
-| `esp01_512k` | ESP-01 with verified 512 KiB | 512 KiB | USB–UART | unavailable | Not run |
-| `esp01_1m` | ESP-01/ESP-01S with verified 1 MiB | 1 MiB | USB–UART | required | Not run |
-| `d1_mini` | WEMOS/LOLIN D1 mini | 4 MiB | onboard USB | required | Not run |
-| `nodemcuv2` | NodeMCU DevKit 1.0 | 4 MiB | onboard USB | required | Not run |
-| `sonoff_basic_r2` | Sonoff Basic R2 | 1 MiB | isolated USB–UART, 3.3 V | required | Not run |
-| `sonoff_basic_r3` | Sonoff Basic R3 | 1 MiB | isolated USB–UART, 3.3 V | required | Not run |
-| `esp32dev` | ESP32-WROOM-32 DevKit, 4 MiB | 4 MiB | onboard USB | required | Not run |
-| `esp32-c3` | Espressif ESP32-C3-DevKitM-1 | 4 MiB | onboard USB–UART | required | Not run |
-| `esp32-s3` | Espressif ESP32-S3-DevKitC-1-N8 | 8 MiB | onboard USB | required | Not run |
+| `esp01_512k` | ESP-01 із підтвердженими 512 КБ | 512 КБ | USB–UART | недоступне | Не виконано |
+| `esp01_1m` | ESP-01/ESP-01S із підтвердженим 1 МБ | 1 МБ | USB–UART | обов'язково | Не виконано |
+| `d1_mini` | WEMOS/LOLIN D1 mini | 4 МБ | вбудований USB | обов'язково | Не виконано |
+| `nodemcuv2` | NodeMCU DevKit 1.0 | 4 МБ | вбудований USB | обов'язково | Не виконано |
+| `sonoff_basic_r2` | Sonoff Basic R2 | 1 МБ | ізольований USB–UART, 3,3 В | обов'язково | Не виконано |
+| `sonoff_basic_r3` | Sonoff Basic R3 | 1 МБ | ізольований USB–UART, 3,3 В | обов'язково | Не виконано |
+| `esp32dev` | ESP32-WROOM-32 DevKit, 4 МБ | 4 МБ | вбудований USB | обов'язково | Не виконано |
+| `esp32-c3` | Espressif ESP32-C3-DevKitM-1 | 4 МБ | вбудований USB–UART | обов'язково | Не виконано |
+| `esp32-s3` | Espressif ESP32-S3-DevKitC-1-N8 | 8 МБ | вбудований USB | обов'язково | Не виконано |
 
-Record the exact module marking, flash ID, USB bridge, test date, firmware SHA-256, and result
-for every row. A clone is an additional sample, not a replacement for the named reference board.
+Для кожного рядка запишіть точне маркування модуля, ідентифікатор flash, модель
+USB-перетворювача, дату тесту, SHA-256 прошивки та результат. Клон є додатковим
+зразком, а не заміною зазначеної еталонної плати.
 
-## Acceptance sequence
+## Послідовність приймання
 
-Run the following sequence on each row of the matrix. Save the serial log for any failure.
+Виконайте такі кроки для кожного рядка матриці. Для кожної помилки збережіть журнал
+послідовного порту.
 
-1. **Clean install** — erase the entire flash, install from the published HTTPS browser page,
-   reboot without boot straps, and confirm there is no reset loop.
-2. **Provisioning AP** — within 15 seconds find `SvitloBoard-XXXXXX`, connect using `svitlobot`,
-   confirm captive DNS redirects to `192.168.4.1`, and open the setup page manually as well.
-3. **Invalid input** — verify that an empty channel key, overlong SSID, invalid password length,
-   and malformed device name are rejected without losing the previous configuration.
-4. **First setup** — save a valid primary 2.4 GHz network and channel key. Confirm the HTTP
-   response completes before the AP disappears, then confirm STA IP, DNS, NTP, verified TLS,
-   and a successful Svitlobot ping.
-5. **Persistence** — power-cycle 20 times, including five power cuts during configuration-slot
-   rotation. The newest complete CRC-valid record must win; a torn record must not force a reset.
-6. **Backup Wi-Fi** — configure two backup networks. Remove the primary, then each backup in
-   turn. Confirm bounded attempts, ordered fallback, a stable last-known-good update after
-   30 seconds, and no profile switching merely because the Svitlobot API is unavailable.
-7. **Recovery AP** — make all saved networks unavailable. Confirm that the AP returns without
-   deleting settings, and that correcting a network restores STA mode.
-8. **AJAX panel** — exercise every control included by the target profile. Standard profiles cover
-   status refresh, network scan, all three Wi-Fi forms, pause/resume, immediate ping, reconnect,
-   authentication, diagnostics, and factory-reset confirmation. Compact profiles cover setup,
-   status, all three Wi-Fi forms, authentication, and OTA. The minimal ESP-01 profile covers setup,
-   authentication, status, and correcting the primary network through recovery AP; verify its
-   documented physical factory-reset path separately.
-9. **OTA** — install a newer correct binary; reject a binary for another target on the same chip,
-   a wrong-chip binary, and a truncated binary; then interrupt one upload. The device must either
-   boot the previous image or remain recoverable by serial flash.
-10. **Factory reset** — reset from the web panel, reboot, and confirm both SvitloBoard settings
-    and SDK-persisted Wi-Fi credentials are gone.
-11. **Power-cycle recovery** — configure the board, then interrupt power during each of its first
-    eight seconds three times. Leave the fourth start powered and confirm that setup is erased and
-    the provisioning AP returns. Configure it again, leave it powered for more than eight seconds,
-    and confirm a later power cycle starts a new count. Finally verify that four software restarts,
-    four watchdog resets, and an OTA restart do not erase settings.
+1. **Чисте встановлення.** Повністю зітріть flash, встановіть прошивку з опублікованої
+   HTTPS-сторінки, перезапустіть плату без завантажувальних перемичок і переконайтеся,
+   що немає циклу скидання.
+2. **Точка доступу налаштування.** Не пізніше ніж через 15 секунд знайдіть
+   `SvitloBoard-XXXXXX`, під'єднайтеся з паролем `svitlobot`, перевірте переспрямування
+   captive DNS на `192.168.4.1` і окремо відкрийте сторінку вручну.
+3. **Некоректні дані.** Перевірте, що порожній ключ каналу, надто довгий SSID,
+   неприпустима довжина пароля й неправильна назва пристрою відхиляються без втрати
+   попередньої конфігурації.
+4. **Перше налаштування.** Збережіть правильну основну мережу 2,4 ГГц та ключ каналу.
+   Переконайтеся, що HTTP-відповідь завершується до вимкнення точки доступу, а потім
+   перевірте IP станції, DNS, NTP, перевірений TLS і успішний сигнал СвітлоБота.
+5. **Стійкість зберігання.** Виконайте 20 циклів живлення, включно з п'ятьма
+   вимкненнями під час зміни слота конфігурації. Має перемогти найновіший завершений
+   запис із правильною CRC, а обірваний запис не повинен спричинити скидання.
+6. **Резервний Wi-Fi.** Налаштуйте дві резервні мережі. По черзі вимикайте основну та
+   резервні. Перевірте обмежений час спроб, заданий порядок, оновлення останнього
+   успішного профілю після 30 секунд стабільної роботи та відсутність перемикання
+   лише через недоступність API СвітлоБота.
+7. **Точка доступу відновлення.** Зробіть усі збережені мережі недоступними. Точка
+   доступу має повернутися без видалення налаштувань, а виправлення мережі — відновити
+   режим станції.
+8. **AJAX-панель.** Перевірте всі елементи, що входять до профілю. Стандартний профіль:
+   статус, сканування, три форми Wi-Fi, пауза/відновлення, негайний сигнал,
+   перепідключення, автентифікація, діагностика й підтвердження заводського скидання.
+   Компактний: налаштування, статус, три Wi-Fi форми, автентифікація та OTA.
+   Мінімальний ESP-01: налаштування, автентифікація, статус і виправлення основної
+   мережі через резервну точку доступу. Окремо перевірте задокументоване фізичне
+   скидання. У кожному профілі сторінка статусу має бути `iframe`; кнопка «Оновити»
+   перезавантажує лише його, а повторне натискання раніше ніж через п'ять секунд
+   ігнорується.
+9. **OTA.** Встановіть новіший правильний бінарник; відхиліть образ іншої плати на
+   тому самому чипі, образ іншої архітектури та обрізаний файл; потім перервіть одне
+   завантаження. Пристрій має завантажити попередній образ або залишитися доступним
+   для відновлення через послідовний порт.
+10. **Заводське скидання.** Виконайте скидання з вебпанелі, перезапустіть пристрій і
+    переконайтеся, що налаштування SvitloBoard та збережені SDK облікові дані Wi-Fi
+    видалено.
+11. **Відновлення циклами живлення.** Налаштуйте плату, а потім тричі вимкніть її
+    протягом перших восьми секунд. Четвертий запуск залиште ввімкненим: налаштування
+    мають стертися, а точка доступу — повернутися. Налаштуйте плату знову, дайте їй
+    працювати понад вісім секунд і перевірте, що наступний цикл починає новий відлік.
+    Чотири програмні перезапуски, чотири watchdog-перезапуски й перезапуск OTA не
+    повинні стирати налаштування.
 
-## Board-specific checks
+## Перевірки окремих плат
 
-- **ESP-01 512 KiB:** confirm serial reinstallation instructions are accurate; OTA must not be
-  shown or accepted. Observe free heap during at least 100 HTTPS pings.
-- **Sonoff Basic R2/R3:** perform serial flashing only while disconnected from mains and load.
-  Confirm GPIO12 is driven low from the earliest application startup and the relay never closes.
-  Confirm expert input accepts GPIO14 only and rejects the relay, LED, button, UART, and flash pins.
-- **ESP32-C3:** test normal automatic flashing and manual `BOOT` + `RESET`. Do not load GPIO2,
-  GPIO8, or GPIO9 during reset.
-- **ESP32-S3:** verify the N8 module marking and confirm that both first install and OTA use the
-  intended partition table despite the board's 8 MiB physical flash.
+- **ESP-01 512 КБ:** перевірте інструкцію повторного встановлення через UART; OTA не
+  має показуватися або прийматися. Спостерігайте вільну heap-пам'ять щонайменше під
+  час 100 HTTPS-запитів.
+- **Sonoff Basic R2/R3:** прошивайте через послідовний порт лише після від'єднання
+  мережі й навантаження. Переконайтеся, що GPIO12 переходить у LOW на самому початку
+  програми й реле ніколи не замикається. Експертний вхід має приймати лише GPIO14 і
+  відхиляти контакти реле, індикатора, кнопки, UART та flash.
+- **ESP32-C3:** перевірте автоматичне прошивання і ручну комбінацію `BOOT` + `RESET`.
+  Не навантажуйте GPIO2, GPIO8 або GPIO9 під час скидання.
+- **ESP32-S3:** перевірте маркування модуля N8 і переконайтеся, що перше встановлення
+  та OTA використовують потрібну таблицю розділів попри фізичні 8 МБ flash.
 
-## Expert isolated input
+## Експертний ізольований вхід
 
-This is a separate safety test and is not required for the ordinary indicator use case. Use only
-a certified isolated low-voltage output; never connect mains directly to a GPIO. Verify allowed
-pins, both active levels, pull-up selection, debounce, one queued OFF request per transition, and
-recovery after Wi-Fi loss. Boot the board from backup power while the isolated input already
-reports missing mains and confirm that one OFF request is sent after debounce. Record the sensing
-module and wiring diagram with the result.
+Це окрема небезпечна перевірка, не потрібна для звичайного індикатора. Використовуйте
+лише сертифікований ізольований низьковольтний вихід; ніколи не підключайте мережеву
+напругу до GPIO. Перевірте дозволені контакти, обидва активні рівні, підтягування,
+фільтрацію дребезгу, один запит `OFF` на перехід і відновлення після втрати Wi-Fi.
+Запустіть плату від резервного живлення, коли ізольований вхід уже показує відсутність
+мережі, і перевірте надсилання одного `OFF` після фільтрації. Запишіть модель модуля
+та схему низьковольтного підключення разом із результатом.
 
-## Release evidence
+## Докази для випуску
 
-Before creating a `v2.*` tag, attach or link:
+До створення тегу `v2.*` додайте або дайте посилання на:
 
-- the successful nine-target GitHub Actions run;
-- `firmware/scripts/verify_release.py --artifacts <staged-firmware-directory>` output;
-- SHA-256 files from the release artifacts;
-- the completed hardware matrix and any known limitations;
-- one successful browser-install recording for each chip family: ESP8266, ESP32, ESP32-C3,
-  and ESP32-S3.
+- успішний запуск GitHub Actions для дев'яти цілей;
+- результат `firmware/scripts/verify_release.py --artifacts <каталог-прошивок>`;
+- файли SHA-256 для артефактів випуску;
+- заповнену матрицю обладнання та відомі обмеження;
+- запис одного успішного браузерного встановлення для кожної родини: ESP8266,
+  ESP32, ESP32-C3 та ESP32-S3.

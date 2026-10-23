@@ -1,35 +1,41 @@
-# Roadmap
+# План розвитку
 
-## 2.0 foundation — implemented in source
+## Основа версії 2.0 — реалізовано у вихідному коді
 
-- independent ESP8266/ESP32 firmware architecture;
-- first-boot captive AP and explicit factory reset;
-- primary plus two backup Wi-Fi profiles and recovery AP;
-- rotating validated settings records;
-- verified HTTPS, bounded cadence, pause, diagnostics;
-- fast AJAX local UI and browser-upload OTA;
-- expert isolated digital power input and immediate OFF request;
-- PlatformIO build profiles, release artifacts, and GitHub Pages installer.
+- самостійна архітектура прошивки для ESP8266 та ESP32;
+- точка доступу для першого налаштування та явне заводське скидання;
+- основна і дві резервні Wi-Fi мережі та точка доступу для відновлення;
+- почергові записи налаштувань із перевіркою;
+- перевірений HTTPS, обмежена частота запитів, технічна пауза та діагностика;
+- швидкий локальний AJAX-інтерфейс і OTA через браузер;
+- `iframe` сторінки статусу з кнопкою оновлення не частіше ніж раз на п'ять секунд;
+- експертний ізольований цифровий вхід живлення та негайний запит `OFF`;
+- профілі PlatformIO, артефакти випуску та браузерний інсталятор на GitHub Pages.
 
-## Before 2.0 is called production-stable
+## До оголошення версії 2.0 стабільною
 
-The authoritative hardware acceptance checklist is [test-plan.md](test-plan.md). Until its
-matrix is complete, the website and release notes must continue to call version 2 a test build.
+Головний перелік приймальних перевірок обладнання наведено у
+[плані тестування](test-plan.md). Доки матрицю не завершено, сайт і примітки до
+випуску мають називати версію 2 тестовою.
 
-- bench-test every released board and record flash/RAM/TLS headroom;
-- power-cut tests during both config-slot rotations and OTA;
-- AP, DHCP, DNS, router-loss, backup-roaming, and recovery stress tests;
-- validate the Svitlobot API response contract with the service owner;
-- add signed OTA metadata and ESP32 rollback confirmation;
-- harden the existing board-compatibility marker with signed OTA metadata;
-- accessibility and mobile layout pass for both web interfaces;
-- decide whether ESP-01 512 KiB has enough operating headroom for long-term support.
+- перевірити кожну опубліковану плату на стенді й записати запас flash/RAM/TLS;
+- перевірити вимкнення живлення під час почергового запису конфігурації та OTA;
+- виконати стрес-тести точки доступу, DHCP, DNS, втрати роутера, переходу на резервну
+  мережу та відновлення;
+- узгодити формат відповідей API СвітлоБота з власником сервісу;
+- додати підписані метадані OTA та підтвердження відкату ESP32;
+- посилити поточний маркер сумісності плати підписаними метаданими OTA;
+- перевірити доступність і мобільне компонування всіх профілів вебпанелі;
+- вирішити, чи має ESP-01 512 КБ достатній робочий запас для довготривалої підтримки.
 
-## Later releases
+## Наступні випуски
 
-- Improv Serial provisioning after the first USB flash;
-- optional custom API endpoint with a separately managed trust anchor;
-- build service for custom defaults without putting Wi-Fi secrets in public artifacts;
-- additional isolated sensor types and board templates;
-- a dedicated Sonoff Basic R2 battery-and-isolated-sensor DIY design and safety manual;
-- import assistant for selected v1 settings, isolated from the v2 storage format.
+- налаштування Improv Serial після першого USB-прошивання;
+- необов'язкова власна адреса API з окремо керованим коренем довіри;
+- сервіс збірки з власними типовими параметрами без Wi-Fi паролів у публічних
+  артефактах;
+- додаткові типи ізольованих датчиків і шаблони плат;
+- окрема перевірена схема Sonoff Basic R2 з акумулятором та ізольованим датчиком,
+  а також інструкція з безпеки;
+- помічник імпорту окремих налаштувань версії 1, ізольований від формату зберігання
+  версії 2.
