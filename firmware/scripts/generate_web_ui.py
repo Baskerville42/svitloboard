@@ -1,4 +1,4 @@
-"""Generate a deterministic gzip-compressed PROGMEM header for the compact UI."""
+"""Generate the deterministic gzip-compressed UI shared by every target."""
 
 from gzip import compress
 from pathlib import Path
@@ -30,8 +30,7 @@ def generate_one(project_dir: Path, source_name: str, output_name: str) -> None:
 
 
 def generate(project_dir: Path) -> None:
-    generate_one(project_dir, "CompactWebUi.h", "CompactWebUiGzip.h")
-    generate_one(project_dir, "MinimalWebUi.h", "MinimalWebUiGzip.h")
+    generate_one(project_dir, "WebUi.h", "WebUiGzip.h")
 
 
 try:

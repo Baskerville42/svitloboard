@@ -9,7 +9,7 @@
 #endif
 
 #include "BuildConfig.h"
-#include "WebUi.h"
+#include "WebUiGzip.h"
 
 namespace svb {
 
@@ -45,13 +45,9 @@ void WebApp::registerRoutes() {
   server_.on("/", HTTP_GET, [this]() {
     if (!authorize(false)) return;
     server_.sendHeader(F("Cache-Control"), F("no-store"));
-#if defined(SVB_PROFILE_COMPACT) || defined(SVB_PROFILE_MINIMAL)
     server_.sendHeader(F("Content-Encoding"), F("gzip"));
     server_.send_P(200, "text/html; charset=utf-8",
                    reinterpret_cast<PGM_P>(kWebUiGzip), kWebUiGzipSize);
-#else
-    server_.send_P(200, "text/html; charset=utf-8", kWebUi);
-#endif
   });
   server_.on("/api/status", HTTP_GET, [this]() { handleStatus(); });
   server_.on("/status-frame", HTTP_GET, [this]() { handleStatusFrame(); });
@@ -63,8 +59,8 @@ void WebApp::registerRoutes() {
 #endif
 #if !defined(SVB_PROFILE_MINIMAL)
   server_.on("/api/settings", HTTP_POST, [this]() { handleSettings(); });
-  server_.on("/api/security", HTTP_POST, [this]() { handleSecurity(); });
 #endif
+  server_.on("/api/security", HTTP_POST, [this]() { handleSecurity(); });
   server_.on("/api/expert", HTTP_POST, [this]() { handleExpert(); });
   server_.on("/api/wifi/scan", HTTP_POST, [this]() { handleScan(); });
   server_.on("/api/action", HTTP_POST, [this]() { handleAction(); });
@@ -116,22 +112,52 @@ void WebApp::handleStatusFrame() {
 
 void WebApp::handleStatus() {
 #if defined(SVB_PROFILE_MINIMAL)
-  if (!authorize(false)) return;
+  const bool handoffVisible = provisioningHandoff_ && wifi_.apActive() &&
+                              !deadlineReached(millis(), provisioningHandoffUntil_);
+  if (!handoffVisible && !authorize(false)) return;
   String json;
-  json.reserve(280);
-  json += F("{\"configGeneration\":");
+  json.reserve(620);
+  json += F("{\"version\":\"");
+  json += kFirmwareVersion;
+  json += F("\",\"board\":\"");
+  json += kBoardName;
+  json += F("\",\"commit\":\"");
+  json += kGitCommit;
+  json += F("\",\"configGeneration\":");
   json += store_.generation();
-  json += F(",\"wifi\":{\"state\":\"");
+  json += F(",\"features\":{\"ota\":false,\"expert\":false,\"settings\":false,"
+            "\"security\":true,\"wifiProfiles\":3,\"logs\":true},"
+            "\"wifi\":{\"state\":\"");
   json += wifi_.stateName();
+  json += F("\",\"connected\":");
+  json += wifi_.connected() ? F("true") : F("false");
+  json += F(",\"ssid\":\"");
+  json += jsonEscape(wifi_.connectedSsid());
+  json += F("\",\"ip\":\"");
+  json += wifi_.stationIp();
   json += F("\",\"apActive\":");
   json += wifi_.apActive() ? F("true") : F("false");
-  json += F("},\"api\":{\"backend\":\"");
+  json += F(",\"apIp\":\"");
+  json += wifi_.accessPointIp();
+  json += F("\"},\"api\":{\"backend\":\"");
   json += reportingBackendName(config_);
   json += F("\",\"result\":\"");
   json += api_.resultName();
   json += F("\",\"httpCode\":");
   json += api_.httpCode();
-  json += F("}}");
+  json += F("},\"events\":[");
+  for (uint8_t index = 0; index < diagnostics_.count(); ++index) {
+    if (index) json += ',';
+    const DiagnosticEvent& event = diagnostics_.newest(index);
+    json += F("{\"ms\":");
+    json += event.uptimeMs;
+    json += F(",\"level\":\"");
+    json += eventLevelName(event.level);
+    json += F("\",\"message\":\"");
+    json += jsonEscape(event.message);
+    json += F("\"}");
+  }
+  json += F("]}");
   sendJson(200, json);
 #else
   const bool handoffVisible = provisioningHandoff_ && wifi_.apActive() &&
@@ -155,7 +181,8 @@ void WebApp::handleStatus() {
   json += SVB_ENABLE_OTA ? F("true") : F("false");
   json += F(",\"expert\":");
   json += SVB_ENABLE_EXPERT ? F("true") : F("false");
-  json += F("},\"wifi\":{\"state\":\"");
+  json += F(",\"settings\":true,\"security\":true,\"wifiProfiles\":3,\"logs\":true},"
+            "\"wifi\":{\"state\":\"");
   json += wifi_.stateName();
   json += F("\",\"connected\":");
   json += wifi_.connected() ? F("true") : F("false");
@@ -220,9 +247,13 @@ void WebApp::handleConfig() {
   if (!authorize(false)) return;
 #if defined(SVB_PROFILE_MINIMAL)
   String json;
-  json.reserve(520);
+  json.reserve(720);
   json += F("{\"setupComplete\":");
   json += config_.setupComplete ? F("true") : F("false");
+  json += F(",\"deviceName\":\"");
+  json += jsonEscape(config_.deviceName);
+  json += F("\",\"adminPasswordSet\":");
+  json += config_.adminPassword[0] ? F("true") : F("false");
   json += F(",\"reportingBackend\":\"");
   json += reportingBackendName(config_);
   json += F("\",\"channelKey\":\"");
@@ -233,7 +264,18 @@ void WebApp::handleConfig() {
   json += config_.pingPaused ? F("true") : F("false");
   json += F(",\"pingInterval\":");
   json += config_.pingIntervalSeconds;
-  json += '}';
+  json += F(",\"wifi\":[");
+  for (uint8_t index = 0; index < kWifiProfileCount; ++index) {
+    if (index) json += ',';
+    json += F("{\"enabled\":");
+    json += config_.wifi[index].enabled ? F("true") : F("false");
+    json += F(",\"ssid\":\"");
+    json += jsonEscape(config_.wifi[index].ssid);
+    json += F("\",\"hasPassword\":");
+    json += config_.wifi[index].password[0] ? F("true") : F("false");
+    json += '}';
+  }
+  json += F("]}");
   sendJson(200, json);
 #else
   String json;
@@ -316,10 +358,8 @@ void WebApp::handleSetup() {
   candidate.wifi[0].enabled = 1;
   candidate.setupComplete = 1;
   if (!saveOrError(candidate)) return;
-#if !defined(SVB_PROFILE_MINIMAL)
   provisioningHandoff_ = true;
   provisioningHandoffUntil_ = millis() + kProvisioningStatusMs;
-#endif
   sendJson(200, F("{\"ok\":true}"));
   api_.requestPingAfter(kPostSavePingDelayMs);
   scheduleWifiReconfigure();
@@ -441,6 +481,7 @@ void WebApp::handleSettings() {
   api_.requestPingAfter(kPostSavePingDelayMs);
   if (hostnameChanged) scheduleWifiReconfigure();
 }
+#endif
 
 void WebApp::handleSecurity() {
   if (!authorize(true)) return;
@@ -462,7 +503,6 @@ void WebApp::handleSecurity() {
   if (!saveOrError(candidate)) return;
   sendJson(200, F("{\"ok\":true}"));
 }
-#endif
 
 void WebApp::handleExpert() {
   if (!authorize(true)) return;
@@ -506,6 +546,13 @@ void WebApp::handleExpert() {
 void WebApp::handleScan() {
   if (!authorize(true)) return;
   const int count = WiFi.scanNetworks(false, true);
+  if (count < 0) {
+    WiFi.scanDelete();
+    diagnostics_.add(EventLevel::Warning,
+                     String(F("Wi-Fi scan failed with code ")) + count);
+    sendError(503, F("Wi-Fi scan failed; try again"));
+    return;
+  }
   String json = F("{\"networks\":[");
   for (int index = 0; index < count; ++index) {
     if (index) json += ',';

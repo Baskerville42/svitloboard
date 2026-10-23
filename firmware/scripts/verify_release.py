@@ -15,7 +15,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 
 TARGETS = {
-    "esp01_512k": ("ESP8266", False, 463_000),
+    "esp01_512k": ("ESP8266", False, 471_000),
     "esp01_1m": ("ESP8266", False, 479_232),
     "d1_mini": ("ESP8266", False, 600_000),
     "nodemcuv2": ("ESP8266", False, 600_000),
@@ -51,6 +51,8 @@ ESP32_CHIP_IDS = {
     "esp32-c3": 5,
     "esp32-s3": 9,
 }
+
+ESP32_FLASH_SIZE_CODE = 0x20  # 4 MiB in the high nibble of the image header.
 
 
 class Verification:
@@ -128,6 +130,12 @@ def verify_esp32_images(result: Verification, target: str, app_name: str, app: b
     boot_offset = 0x1000 if target == "esp32dev" else 0
     result.check(esp32_chip_id(factory, boot_offset) == expected_chip,
                  f"{factory_name}: wrong or invalid ESP32 bootloader")
+    if len(app) >= 4:
+        result.check(app[3] & 0xF0 == ESP32_FLASH_SIZE_CODE,
+                     f"{app_name}: image header must declare 4 MiB flash")
+    if len(factory) >= boot_offset + 4:
+        result.check(factory[boot_offset + 3] & 0xF0 == ESP32_FLASH_SIZE_CODE,
+                     f"{factory_name}: bootloader header must declare 4 MiB flash")
     result.check(len(factory) > 0x8002 and factory[0x8000:0x8002] == b"\xAA\x50",
                  f"{factory_name}: partition table is missing at 0x8000")
     result.check(esp32_chip_id(factory, 0x10000) == expected_chip,
@@ -194,8 +202,13 @@ def verify_profile_invariants(result: Verification) -> None:
     minimal = environment_block(ini, "esp01_512k")
     result.check("-D SVB_ENABLE_OTA=0" in minimal and "-D SVB_ENABLE_EXPERT=0" in minimal,
                  "esp01_512k must disable OTA and expert GPIO")
-    result.check("eagle.flash.512k32.ld" in minimal,
-                 "esp01_512k must use the 512 KiB/32 KiB filesystem linker script")
+    result.check("ld/eagle.flash.512k24.ld" in minimal,
+                 "esp01_512k must use the 512 KiB/24 KiB filesystem linker script")
+    minimal_linker = read("firmware/ld/eagle.flash.512k24.ld")
+    result.check("len = 0x73ff0" in minimal_linker and
+                 "_FS_start = 0x40275000" in minimal_linker and
+                 "_FS_end = 0x4027B000" in minimal_linker,
+                 "esp01_512k linker script must reserve exactly 24 KiB for LittleFS")
 
     esp01_1m = environment_block(ini, "esp01_1m")
     result.check("-D SVB_ENABLE_EXPERT=0" in esp01_1m,
@@ -207,6 +220,10 @@ def verify_profile_invariants(result: Verification) -> None:
         result.check("eagle.flash.1m64.ld" in block, f"{target}: expected 1 MiB linker script")
         result.check("-D SVB_RELAY_GPIO=12" in block,
                      f"{target}: onboard relay GPIO must be declared")
+
+    esp32_s3 = environment_block(ini, "esp32-s3")
+    result.check("board_upload.flash_size = 4MB" in esp32_s3,
+                 "esp32-s3 must emit a 4 MiB-compatible image header")
 
     main = read("firmware/src/main.cpp")
     power = read("firmware/src/PowerMonitor.cpp")
@@ -222,27 +239,33 @@ def verify_profile_invariants(result: Verification) -> None:
                  "rawMainsPresent_ = digitalRead" in power,
                  "an initially absent mains input must debounce into a MainsLost event")
 
-    web_ui = (read("firmware/include/WebUi.h") + read("firmware/include/CompactWebUi.h") +
-              read("firmware/include/MinimalWebUi.h"))
+    web_app = read("firmware/src/WebApp.cpp")
+    web_ui = read("firmware/include/WebUi.h")
+    ui_generator = read("firmware/scripts/generate_web_ui.py")
+    result.check(not (ROOT / "firmware/include/CompactWebUi.h").exists() and
+                 not (ROOT / "firmware/include/MinimalWebUi.h").exists() and
+                 ui_generator.count("    generate_one(project_dir,") == 1 and
+                 '"WebUi.h", "WebUiGzip.h"' in ui_generator and
+                 '#include "WebUiGzip.h"' in web_app,
+                 "every board must serve the single shared web UI source")
+    result.check(ini.count("SVB_PROFILE_MINIMAL") == 1 and
+                 "SVB_PROFILE_COMPACT" not in ini and
+                 "SVB_PROFILE_STANDARD" not in ini,
+                 "only the constrained 512 KiB firmware capability profile may remain")
     result.check("firmware.bin для ESP-01S" not in web_ui,
-                 "compact OTA UI must not claim that every compact build is ESP-01S")
-    result.check(web_ui.count("x.send(new FormData(e.target))") >= 2,
-                 "compact and full OTA forms must send multipart FormData")
-    result.check(web_ui.count('name="adminPassword"') >= 3,
-                 "every web UI profile must offer an optional admin password during setup")
-    result.check("configured&&s.wifi.apActive" in web_ui and
-                 "configured?'/api/wifi':'/api/setup'" in web_ui,
-                 "minimal UI must allow primary Wi-Fi correction through recovery AP")
-    result.check(web_ui.count("renderedGeneration") >= 4 and
-                 web_ui.count("document.activeElement.matches('input,select,textarea')") >= 2,
-                 "AJAX refresh must not rebuild compact or full forms while the user is editing")
-    result.check(web_ui.count('<iframe id=') == 3 and
-                 web_ui.count('>Оновити</button>') >= 3,
-                 "every web UI profile must include the status iframe and refresh button")
+                 "shared OTA UI must not claim that every build is ESP-01S")
+    result.check("x.send(new FormData(e.target))" in web_ui,
+                 "shared OTA form must send multipart FormData")
+    result.check(web_ui.count('name="adminPassword"') == 2,
+                 "shared UI must offer panel protection during setup and in system settings")
+    result.check(web_ui.count("renderedGeneration") >= 2 and
+                 "document.activeElement&&document.activeElement.matches('input,select,textarea')" in web_ui,
+                 "AJAX refresh must not rebuild forms while the user is editing")
+    result.check(web_ui.count('<iframe id=') == 1 and
+                 '>Оновити статус</button>' in web_ui,
+                 "shared UI must include the status iframe and refresh button")
     result.check("statusRefreshAfter=now+5000" in web_ui and
-                 "statusRefreshAfter=n+5000" in web_ui and
-                 "t=n+5000" in web_ui and
-                 web_ui.count("src='/status-frame?refresh='+n") == 3,
+                 "frame.src='/status-frame?refresh='+now" in web_ui,
                  "status iframe refresh must enforce the agreed five-second cooldown")
     result.check("contentWindow.location.reload" not in web_ui,
                  "cross-origin status iframe must be refreshed by replacing its URL")
@@ -251,19 +274,24 @@ def verify_profile_invariants(result: Verification) -> None:
                  "function chooseSetupWifi(" in web_ui and
                  "Інша або прихована мережа" in web_ui and
                  "api('/api/wifi/scan',{method:'POST'})" in web_ui,
-                 "compact setup must render scanned Wi-Fi cards and retain a hidden-network fallback")
+                 "shared setup must render scanned Wi-Fi cards and retain a hidden-network fallback")
+    result.check("<datalist" not in web_ui and 'list="networks"' not in web_ui,
+                 "shared setup must use visible Wi-Fi selectors instead of a datalist")
+    result.check("if (count < 0)" in web_app and "Wi-Fi scan failed with code" in web_app,
+                 "Wi-Fi scan failures must not be reported as an empty network list")
     result.check('name="channelKey" maxlength="64" required' not in web_ui and
                  "(!channelKey.isEmpty() && !validChannelKey(channelKey))" in read("firmware/src/WebApp.cpp"),
                  "first setup must allow Wi-Fi provisioning before a channel key is available")
-    result.check(web_ui.count('name="reportingBackend"') == 6 and
-                 web_ui.count('name="customUrl"') == 6 and
-                 web_ui.count("toggleDestination(") >= 9,
-                 "every web UI profile must select Svitlobot or a custom URL during and after setup")
+    result.check(web_ui.count('name="reportingBackend"') == 2 and
+                 web_ui.count('name="customUrl"') == 2 and
+                 web_ui.count("toggleDestination(") >= 4,
+                 "shared UI must select Svitlobot or a custom URL during and after setup")
     result.check('name="ssidChoice"' in web_ui and
                  "function scanInteractive()" in web_ui and
                  'id="settings"' in web_ui and
-                 "api('/api/settings',{method:'POST'" in web_ui,
-                 "compact panel must scan backup networks and allow channel settings updates")
+                 "features.settings?'/api/settings':'/api/reporting'" in web_ui and
+                 ".slice(0,features.wifiProfiles)" in web_ui,
+                 "shared panel must adapt settings and Wi-Fi profiles to firmware capabilities")
     result.check('id="busy"' in web_ui and
                  "function runBusy(" in web_ui and
                  "x.upload.onprogress" in web_ui and
@@ -271,34 +299,35 @@ def verify_profile_invariants(result: Verification) -> None:
                  "function setupAccordions()" in web_ui and
                  "content:'📁'" in web_ui and
                  "content:'📂'" in web_ui,
-                 "compact UI must block user actions, report OTA progress, and expose accordion logs")
+                 "shared UI must block user actions, report OTA progress, and expose accordion logs")
     result.check("max-height:216px" in web_ui and
                  'data-secure="' in web_ui and
                  'name="manualOpen"' in web_ui and
                  "Прихована мережа без пароля" in web_ui and
-                 "Відкрита мережа / стерти пароль" not in read("firmware/include/CompactWebUi.h"),
-                 "compact Wi-Fi chooser must cap long lists and infer scanned-network security")
+                 "Відкрита мережа / стерти пароль" not in web_ui,
+                 "shared Wi-Fi chooser must cap long lists and infer scanned-network security")
     result.check("Ключ показано повністю" not in web_ui and
                  "Під час завантаження панель буде заблокована" not in web_ui,
-                 "compact UI must not explain self-evident form and loading behavior")
+                 "shared UI must not explain self-evident form and loading behavior")
     result.check('id="buildInfo"' in web_ui and
                  'id="commitLink"' in web_ui and
                  "Alexander Tartmin" in web_ui and
                  "github.com/Baskerville42/svitloboard" in web_ui,
-                 "compact UI footer must expose version, authorship, commit, and repository")
+                 "shared UI footer must expose version, authorship, commit, and repository")
     result.check('<summary>Система</summary>' in web_ui and
                  'id="security"' in web_ui and
                  "clearAdminPassword" in web_ui and
                  "action:'factory-reset',confirm:'RESET'" in web_ui,
-                 "compact UI must manage panel protection and expose confirmed factory reset")
-    result.check(web_ui.count('id="handoff"') == 2 and
-                 web_ui.count("IP-адреса плати") == 2 and
-                 web_ui.count("watchSetup()") >= 4,
-                 "compact and full setup must replace the form with connection handoff status")
+                 "shared UI must manage panel protection and expose confirmed factory reset")
+    result.check(web_ui.count('id="handoff"') == 1 and
+                 web_ui.count("IP-адреса плати") == 1 and
+                 web_ui.count("watchSetup()") >= 2 and
+                 '\\"wifiProfiles\\":3' in web_app and
+                 '\\"settings\\":false' in web_app,
+                 "shared setup and constrained firmware must support capability-aware handoff")
 
     build_config = read("firmware/include/BuildConfig.h")
     version_script = read("firmware/scripts/version.py")
-    web_app = read("firmware/src/WebApp.cpp")
     result.check("SVB_GIT_COMMIT" in build_config and
                  "kGitCommit" in build_config and
                  "SVB_GIT_COMMIT" in version_script and
