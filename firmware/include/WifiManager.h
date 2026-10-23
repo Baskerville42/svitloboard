@@ -53,6 +53,9 @@ class WifiManager {
   uint32_t attemptDeadline_ = 0;
   uint32_t attemptStartedAt_ = 0;
   uint32_t connectedAt_ = 0;
+#if !defined(SVB_PROFILE_MINIMAL)
+  uint32_t apStopAt_ = 0;
+#endif
   uint32_t backoffDeadline_ = 0;
   uint32_t backoffMs_ = kWifiInitialBackoffMs;
   bool apActive_ = false;

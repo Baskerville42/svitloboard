@@ -222,7 +222,7 @@ def verify_profile_invariants(result: Verification) -> None:
                  "rawMainsPresent_ = digitalRead" in power,
                  "an initially absent mains input must debounce into a MainsLost event")
 
-    web_ui = read("firmware/include/WebUi.h")
+    web_ui = read("firmware/include/WebUi.h") + read("firmware/include/CompactWebUi.h")
     result.check("firmware.bin для ESP-01S" not in web_ui,
                  "compact OTA UI must not claim that every compact build is ESP-01S")
     result.check(web_ui.count("x.send(new FormData(e.target))") >= 2,
@@ -236,16 +236,74 @@ def verify_profile_invariants(result: Verification) -> None:
                  web_ui.count("document.activeElement.matches('input,select,textarea')") >= 2,
                  "AJAX refresh must not rebuild compact or full forms while the user is editing")
     result.check(web_ui.count('<iframe id=') == 3 and
-                 web_ui.count('>Оновити</button>') >= 4,
+                 web_ui.count('>Оновити</button>') >= 3,
                  "every web UI profile must include the status iframe and refresh button")
-    result.check(web_ui.count("statusRefreshAfter=n+5000") == 2 and
+    result.check("statusRefreshAfter=now+5000" in web_ui and
+                 "statusRefreshAfter=n+5000" in web_ui and
                  "t=n+5000" in web_ui and
                  web_ui.count("src='/status-frame?refresh='+n") == 3,
                  "status iframe refresh must enforce the agreed five-second cooldown")
     result.check("contentWindow.location.reload" not in web_ui,
                  "cross-origin status iframe must be refreshed by replacing its URL")
+    result.check('id="setupNetworks"' in web_ui and
+                 'name="setupSsidChoice"' in web_ui and
+                 "function chooseSetupWifi(" in web_ui and
+                 "Інша або прихована мережа" in web_ui and
+                 "api('/api/wifi/scan',{method:'POST'})" in web_ui,
+                 "compact setup must render scanned Wi-Fi cards and retain a hidden-network fallback")
+    result.check('name="channelKey" maxlength="64" required' not in web_ui and
+                 "(!channelKey.isEmpty() && !validChannelKey(channelKey))" in read("firmware/src/WebApp.cpp"),
+                 "first setup must allow Wi-Fi provisioning before a channel key is available")
+    result.check('name="ssidChoice"' in web_ui and
+                 "function scanInteractive()" in web_ui and
+                 'id="settings"' in web_ui and
+                 "api('/api/settings',{method:'POST'" in web_ui,
+                 "compact panel must scan backup networks and allow channel settings updates")
+    result.check('id="busy"' in web_ui and
+                 "function runBusy(" in web_ui and
+                 "x.upload.onprogress" in web_ui and
+                 '<summary>Логи</summary>' in web_ui and
+                 "function setupAccordions()" in web_ui and
+                 "content:'📁'" in web_ui and
+                 "content:'📂'" in web_ui,
+                 "compact UI must block user actions, report OTA progress, and expose accordion logs")
+    result.check("max-height:216px" in web_ui and
+                 'data-secure="' in web_ui and
+                 'name="manualOpen"' in web_ui and
+                 "Прихована мережа без пароля" in web_ui and
+                 "Відкрита мережа / стерти пароль" not in read("firmware/include/CompactWebUi.h"),
+                 "compact Wi-Fi chooser must cap long lists and infer scanned-network security")
+    result.check("Ключ показано повністю" not in web_ui and
+                 "Під час завантаження панель буде заблокована" not in web_ui,
+                 "compact UI must not explain self-evident form and loading behavior")
+    result.check('id="buildInfo"' in web_ui and
+                 'id="commitLink"' in web_ui and
+                 "Alexander Tartmin" in web_ui and
+                 "github.com/Baskerville42/svitloboard" in web_ui,
+                 "compact UI footer must expose version, authorship, commit, and repository")
+    result.check('<summary>Система</summary>' in web_ui and
+                 'id="security"' in web_ui and
+                 "clearAdminPassword" in web_ui and
+                 "action:'factory-reset',confirm:'RESET'" in web_ui,
+                 "compact UI must manage panel protection and expose confirmed factory reset")
+    result.check(web_ui.count('id="handoff"') == 2 and
+                 web_ui.count("IP-адреса плати") == 2 and
+                 web_ui.count("watchSetup()") >= 4,
+                 "compact and full setup must replace the form with connection handoff status")
 
     build_config = read("firmware/include/BuildConfig.h")
+    version_script = read("firmware/scripts/version.py")
+    web_app = read("firmware/src/WebApp.cpp")
+    result.check("SVB_GIT_COMMIT" in build_config and
+                 "kGitCommit" in build_config and
+                 "SVB_GIT_COMMIT" in version_script and
+                 '\\"commit\\":\\"' in web_app,
+                 "firmware status must expose the source commit injected at build time")
+    result.check('server_.on("/api/security"' in web_app and
+                 "void WebApp::handleSecurity()" in web_app and
+                 "memset(candidate.adminPassword" in web_app and
+                 '\\"adminPasswordSet\\"' in web_app,
+                 "panel protection must support changing and clearing the admin password")
     boot_recovery = read("firmware/src/BootRecovery.cpp")
     config_store = read("firmware/src/ConfigStore.cpp")
     result.check("kFastBootResetThreshold = 4" in build_config and
@@ -265,6 +323,18 @@ def verify_profile_invariants(result: Verification) -> None:
                  "fast power-cycle recovery must be wired into setup and loop")
 
     web_app = read("firmware/src/WebApp.cpp")
+    wifi_manager = read("firmware/src/WifiManager.cpp")
+    result.check("kWifiReconfigureDelayMs = 2000" in build_config and
+                 "kProvisioningApGraceMs = 60000" in build_config and
+                 "kProvisioningStatusMs = 60000" in build_config and
+                 "wifiReconfigureAt_ = millis() + kWifiReconfigureDelayMs" in web_app and
+                 "apStopAt_ = now + kProvisioningApGraceMs" in wifi_manager,
+                 "provisioning AP must remain available long enough to report the DHCP address")
+    result.check("provisioningHandoffUntil_ = millis() + kProvisioningStatusMs" in web_app,
+                 "status polling must be temporarily available during setup handoff")
+    result.check('F(",\\"channelKey\\":\\"")' in web_app and
+                 "already assigned to another profile" in web_app,
+                 "configuration must expose the requested channel key and reject duplicate Wi-Fi profiles")
     result.check('kOtaCompatibilityMarker[] = "SVB2-OTA:" SVB_BOARD_NAME' in build_config,
                  "each firmware target must embed an OTA board compatibility marker")
     result.check("inspectOtaChunk(upload.buf, upload.currentSize)" in web_app and
@@ -274,6 +344,9 @@ def verify_profile_invariants(result: Verification) -> None:
     result.check('server_.on("/status-frame", HTTP_GET' in web_app and
                  "api_.statusPageUrl()" in web_app,
                  "status iframe route must authenticate and redirect through SvitlobotClient")
+    result.check("Ключ каналу не налаштовано" in web_app and
+                 "Додайте його в секції «СвітлоБот»" in web_app,
+                 "status iframe must explain the valid setup-without-channel-key state")
     result.check('F("/status?channel_key=")' in svitlobot_client and
                  "urlEncode(config_.channelKey)" in svitlobot_client,
                  "status page URL must contain a URL-encoded channel key")
