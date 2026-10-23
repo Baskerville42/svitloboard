@@ -34,6 +34,9 @@ void WifiManager::loop() {
 
   if (WiFi.status() == WL_CONNECTED) {
     if (state_ != State::Connected) handleConnected(now);
+#if !defined(SVB_PROFILE_MINIMAL)
+    if (apActive_ && apStopAt_ && deadlineReached(now, apStopAt_)) stopAccessPoint();
+#endif
     if (!stableProfileReported_ && activeProfile_ >= 0 &&
         deadlineReached(now, connectedAt_ + kWifiStableMs)) {
       stableProfileReported_ = true;
@@ -198,7 +201,14 @@ void WifiManager::handleConnected(uint32_t now) {
   diagnostics_.add(EventLevel::Info,
                    String(F("Wi-Fi connected: ")) + WiFi.SSID() + F(" at ") +
                        WiFi.localIP().toString());
+#if defined(SVB_PROFILE_MINIMAL)
   if (config_.setupComplete) stopAccessPoint();
+#else
+  if (config_.setupComplete && apActive_) {
+    apStopAt_ = now + kProvisioningApGraceMs;
+    diagnostics_.add(EventLevel::Info, F("Provisioning AP will stop after handoff"));
+  }
+#endif
 }
 
 void WifiManager::scheduleBackoff(uint32_t now) {
@@ -213,6 +223,9 @@ void WifiManager::scheduleBackoff(uint32_t now) {
 
 void WifiManager::startAccessPoint() {
   if (apActive_) return;
+#if !defined(SVB_PROFILE_MINIMAL)
+  apStopAt_ = 0;
+#endif
   WiFi.mode(WIFI_AP_STA);
   const String name = accessPointName();
   if (WiFi.softAP(name.c_str(), kAccessPointPassword)) {
@@ -229,6 +242,9 @@ void WifiManager::stopAccessPoint() {
   if (!apActive_) return;
   WiFi.softAPdisconnect(false);
   apActive_ = false;
+#if !defined(SVB_PROFILE_MINIMAL)
+  apStopAt_ = 0;
+#endif
   WiFi.mode(WIFI_STA);
   diagnostics_.add(EventLevel::Info, F("Recovery AP stopped"));
 }

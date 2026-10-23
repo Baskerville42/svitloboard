@@ -44,14 +44,24 @@ void WebApp::loop() {
 void WebApp::registerRoutes() {
   server_.on("/", HTTP_GET, [this]() {
     if (!authorize(false)) return;
+    server_.sendHeader(F("Cache-Control"), F("no-store"));
+#if defined(SVB_PROFILE_COMPACT)
+    server_.sendHeader(F("Content-Encoding"), F("gzip"));
+    server_.send_P(200, "text/html; charset=utf-8",
+                   reinterpret_cast<PGM_P>(kWebUiGzip), kWebUiGzipSize);
+#else
     server_.send_P(200, "text/html; charset=utf-8", kWebUi);
+#endif
   });
   server_.on("/api/status", HTTP_GET, [this]() { handleStatus(); });
   server_.on("/status-frame", HTTP_GET, [this]() { handleStatusFrame(); });
   server_.on("/api/config", HTTP_GET, [this]() { handleConfig(); });
   server_.on("/api/setup", HTTP_POST, [this]() { handleSetup(); });
   server_.on("/api/wifi", HTTP_POST, [this]() { handleWifi(); });
+#if !defined(SVB_PROFILE_MINIMAL)
   server_.on("/api/settings", HTTP_POST, [this]() { handleSettings(); });
+  server_.on("/api/security", HTTP_POST, [this]() { handleSecurity(); });
+#endif
   server_.on("/api/expert", HTTP_POST, [this]() { handleExpert(); });
   server_.on("/api/wifi/scan", HTTP_POST, [this]() { handleScan(); });
   server_.on("/api/action", HTTP_POST, [this]() { handleAction(); });
@@ -66,8 +76,18 @@ void WebApp::registerRoutes() {
 
 void WebApp::handleStatusFrame() {
   if (!authorize(false)) return;
-  if (!config_.setupComplete || config_.channelKey[0] == '\0') {
+  if (!config_.setupComplete) {
     sendError(409, F("Setup is incomplete"));
+    return;
+  }
+  if (config_.channelKey[0] == '\0') {
+    server_.sendHeader(F("Cache-Control"), F("no-store"));
+    server_.send(200, "text/html; charset=utf-8",
+                 F("<!doctype html><html lang=uk><meta charset=utf-8>"
+                   "<meta name=viewport content=\"width=device-width,initial-scale=1\">"
+                   "<style>body{font:16px system-ui;color:#625d72;padding:22px;margin:0}"
+                   "b{color:#252236}</style><body><b>Ключ каналу не налаштовано</b>"
+                   "<p>Додайте його в секції «СвітлоБот».</p></body></html>"));
     return;
   }
   server_.sendHeader(F("Cache-Control"), F("no-store"));
@@ -76,13 +96,21 @@ void WebApp::handleStatusFrame() {
 }
 
 void WebApp::handleStatus() {
+#if defined(SVB_PROFILE_MINIMAL)
   if (!authorize(false)) return;
+#else
+  const bool handoffVisible = provisioningHandoff_ && wifi_.apActive() &&
+                              !deadlineReached(millis(), provisioningHandoffUntil_);
+  if (!handoffVisible && !authorize(false)) return;
+#endif
   String json;
-  json.reserve(2700);
+  json.reserve(2740);
   json += F("{\"version\":\"");
   json += kFirmwareVersion;
   json += F("\",\"board\":\"");
   json += kBoardName;
+  json += F("\",\"commit\":\"");
+  json += kGitCommit;
   json += F("\",\"uptimeMs\":");
   json += millis();
   json += F(",\"freeHeap\":");
@@ -147,14 +175,23 @@ void WebApp::handleStatus() {
 
 void WebApp::handleConfig() {
   if (!authorize(false)) return;
+#if defined(SVB_PROFILE_MINIMAL)
+  sendJson(200, config_.setupComplete ? F("{\"setupComplete\":true}")
+                                      : F("{\"setupComplete\":false}"));
+#else
   String json;
-  json.reserve(1200);
+  json.reserve(1350);
   json += F("{\"setupComplete\":");
   json += config_.setupComplete ? F("true") : F("false");
   json += F(",\"deviceName\":\"");
   json += jsonEscape(config_.deviceName);
   json += F("\",\"hasChannelKey\":");
   json += config_.channelKey[0] ? F("true") : F("false");
+  json += F(",\"channelKey\":\"");
+  json += jsonEscape(config_.channelKey);
+  json += '"';
+  json += F(",\"adminPasswordSet\":");
+  json += config_.adminPassword[0] ? F("true") : F("false");
   json += F(",\"pingPaused\":");
   json += config_.pingPaused ? F("true") : F("false");
   json += F(",\"pingInterval\":");
@@ -184,6 +221,7 @@ void WebApp::handleConfig() {
   json += config_.expert.debounceMs;
   json += F("}}");
   sendJson(200, json);
+#endif
 }
 
 void WebApp::handleSetup() {
@@ -192,7 +230,8 @@ void WebApp::handleSetup() {
   const String password = server_.arg("password");
   const String channelKey = server_.arg("channelKey");
   const String adminPassword = server_.arg("adminPassword");
-  if (!validSsid(ssid) || !validWifiPassword(password) || !validChannelKey(channelKey) ||
+  if (!validSsid(ssid) || !validWifiPassword(password) ||
+      (!channelKey.isEmpty() && !validChannelKey(channelKey)) ||
       !validAdminPassword(adminPassword)) {
     sendError(400, F("Invalid SSID, password, channel key or admin password"));
     return;
@@ -206,6 +245,10 @@ void WebApp::handleSetup() {
   candidate.wifi[0].enabled = 1;
   candidate.setupComplete = 1;
   if (!saveOrError(candidate)) return;
+#if !defined(SVB_PROFILE_MINIMAL)
+  provisioningHandoff_ = true;
+  provisioningHandoffUntil_ = millis() + kProvisioningStatusMs;
+#endif
   api_.requestPingNow();
   sendJson(200, F("{\"ok\":true}"));
   scheduleWifiReconfigure();
@@ -227,6 +270,15 @@ void WebApp::handleWifi() {
       (clearPassword && !password.isEmpty())) {
     sendError(400, F("Invalid SSID or Wi-Fi password"));
     return;
+  }
+  if (enabled) {
+    for (uint8_t other = 0; other < kWifiProfileCount; ++other) {
+      if (other != index && config_.wifi[other].ssid[0] != '\0' &&
+          ssid == config_.wifi[other].ssid) {
+        sendError(409, F("This Wi-Fi network is already assigned to another profile"));
+        return;
+      }
+    }
   }
 
   AppConfig candidate = config_;
@@ -252,6 +304,7 @@ void WebApp::handleWifi() {
   scheduleWifiReconfigure();
 }
 
+#if !defined(SVB_PROFILE_MINIMAL)
 void WebApp::handleSettings() {
   if (!authorize(true)) return;
   const String deviceName = server_.arg("deviceName");
@@ -270,7 +323,7 @@ void WebApp::handleSettings() {
   AppConfig candidate = config_;
   const bool hostnameChanged = deviceName != config_.deviceName;
   copyChecked(candidate.deviceName, sizeof(candidate.deviceName), deviceName);
-  if (!channelKey.isEmpty()) copyChecked(candidate.channelKey, sizeof(candidate.channelKey), channelKey);
+  copyChecked(candidate.channelKey, sizeof(candidate.channelKey), channelKey);
   if (!adminPassword.isEmpty()) {
     copyChecked(candidate.adminPassword, sizeof(candidate.adminPassword), adminPassword);
   }
@@ -281,6 +334,28 @@ void WebApp::handleSettings() {
   api_.requestPingNow();
   if (hostnameChanged) scheduleWifiReconfigure();
 }
+
+void WebApp::handleSecurity() {
+  if (!authorize(true)) return;
+  const String adminPassword = server_.arg("adminPassword");
+  const bool clearAdminPassword = server_.hasArg("clearAdminPassword");
+  if ((clearAdminPassword && !adminPassword.isEmpty()) ||
+      (!clearAdminPassword && !validAdminPassword(adminPassword)) ||
+      (!clearAdminPassword && adminPassword.isEmpty())) {
+    sendError(400, F("Enter a new admin password or disable panel protection"));
+    return;
+  }
+
+  AppConfig candidate = config_;
+  if (clearAdminPassword) {
+    memset(candidate.adminPassword, 0, sizeof(candidate.adminPassword));
+  } else {
+    copyChecked(candidate.adminPassword, sizeof(candidate.adminPassword), adminPassword);
+  }
+  if (!saveOrError(candidate)) return;
+  sendJson(200, F("{\"ok\":true}"));
+}
+#endif
 
 void WebApp::handleExpert() {
   if (!authorize(true)) return;
@@ -545,7 +620,10 @@ void WebApp::syncCaptiveDns() {
 
 void WebApp::scheduleWifiReconfigure() {
   wifiReconfigurePending_ = true;
-  wifiReconfigureAt_ = millis() + 500;
+  // Let the setup response reach captive-portal browsers before changing the
+  // ESP radio state. WebKit otherwise reports a misleading "Load failed"
+  // even though the configuration has already been committed to flash.
+  wifiReconfigureAt_ = millis() + kWifiReconfigureDelayMs;
 }
 
 }  // namespace svb

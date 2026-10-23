@@ -10,6 +10,10 @@
 #define SVB_BOARD_NAME "unknown"
 #endif
 
+#ifndef SVB_GIT_COMMIT
+#define SVB_GIT_COMMIT "unknown"
+#endif
+
 #ifndef SVB_ENABLE_TLS
 #define SVB_ENABLE_TLS 1
 #endif
@@ -26,6 +30,7 @@ namespace svb {
 
 constexpr char kFirmwareVersion[] = SVB_FIRMWARE_VERSION;
 constexpr char kBoardName[] = SVB_BOARD_NAME;
+constexpr char kGitCommit[] = SVB_GIT_COMMIT;
 constexpr char kOtaCompatibilityMarker[] = "SVB2-OTA:" SVB_BOARD_NAME;
 constexpr char kDefaultDeviceName[] = "SvitloBoard";
 constexpr char kAccessPointPrefix[] = "SvitloBoard-";
@@ -40,6 +45,9 @@ constexpr uint32_t kWifiTerminalStateGraceMs = 1500;
 constexpr uint32_t kWifiStableMs = 30000;
 constexpr uint32_t kWifiInitialBackoffMs = 15000;
 constexpr uint32_t kWifiMaximumBackoffMs = 300000;
+constexpr uint32_t kWifiReconfigureDelayMs = 2000;
+constexpr uint32_t kProvisioningApGraceMs = 60000;
+constexpr uint32_t kProvisioningStatusMs = 60000;
 constexpr uint32_t kHttpTimeoutMs = 6500;
 constexpr uint32_t kValidUnixTime = 1700000000UL;
 constexpr uint8_t kFastBootResetThreshold = 4;

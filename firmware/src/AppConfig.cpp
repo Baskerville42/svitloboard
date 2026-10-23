@@ -46,11 +46,11 @@ bool isConfigSane(const AppConfig& config) {
     }
   }
   if (!validDeviceName(String(config.deviceName)) ||
-      !validAdminPassword(String(config.adminPassword))) {
+      !validAdminPassword(String(config.adminPassword)) ||
+      (config.channelKey[0] != '\0' && !validChannelKey(String(config.channelKey)))) {
     return false;
   }
-  if (config.setupComplete &&
-      (!config.wifi[0].enabled || !validChannelKey(String(config.channelKey)))) {
+  if (config.setupComplete && !config.wifi[0].enabled) {
     return false;
   }
   return config.expert.enabled <= 1 && config.expert.offNotificationEnabled <= 1 &&

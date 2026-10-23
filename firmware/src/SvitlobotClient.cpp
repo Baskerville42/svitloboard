@@ -21,6 +21,11 @@ void SvitlobotClient::begin() {
 
 void SvitlobotClient::loop() {
   const uint32_t now = millis();
+  if (!config_.setupComplete) {
+    result_ = Result::Never;
+    clockStarted_ = false;
+    return;
+  }
   if (!wifi_.connected()) {
     result_ = Result::NoWifi;
     clockStarted_ = false;
