@@ -14,7 +14,7 @@ class SvitlobotClient {
     Never,
     Success,
     Paused,
-    NoKey,
+    MissingConfiguration,
     NoWifi,
     ClockNotReady,
     TlsError,
@@ -27,6 +27,7 @@ class SvitlobotClient {
   void begin();
   void loop();
   void requestPingNow();
+  void requestPingAfter(uint32_t delayMs);
   void queueOffNotification();
   void cancelQueuedOffNotification();
   String statusPageUrl() const;
@@ -41,6 +42,7 @@ class SvitlobotClient {
 
  private:
   bool sendRequest(bool off);
+  bool customBackend() const;
   static String urlEncode(const char* value);
   void ensureClockStarted();
 
@@ -52,6 +54,7 @@ class SvitlobotClient {
   uint32_t lastAttemptMs_ = 0;
   uint32_t lastSuccessMs_ = 0;
   uint32_t nextPingMs_ = 0;
+  uint32_t pingRequestAtMs_ = 0;
   uint32_t offRetryAtMs_ = 0;
   uint32_t offRetryMs_ = 30000;
   bool clockStarted_ = false;

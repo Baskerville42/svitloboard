@@ -14,6 +14,7 @@ namespace svb {
 void setConfigDefaults(AppConfig& config) {
   memset(&config, 0, sizeof(config));
   copyChecked(config.deviceName, sizeof(config.deviceName), kDefaultDeviceName);
+  config.reportingBackend = static_cast<uint8_t>(ReportingBackend::Svitlobot);
   config.pingIntervalSeconds = kDefaultPingIntervalSeconds;
   config.lastWifiProfile = 0;
   config.expert.mainsPin = -1;
@@ -26,12 +27,14 @@ bool isConfigSane(const AppConfig& config) {
       config.lastWifiProfile >= kWifiProfileCount) {
     return false;
   }
+  if (config.reportingBackend > static_cast<uint8_t>(ReportingBackend::CustomUrl)) return false;
   if (config.pingIntervalSeconds < kMinimumPingIntervalSeconds ||
       config.pingIntervalSeconds > kMaximumPingIntervalSeconds) {
     return false;
   }
   if (config.deviceName[sizeof(config.deviceName) - 1] != '\0' ||
       config.channelKey[sizeof(config.channelKey) - 1] != '\0' ||
+      config.customUrl[sizeof(config.customUrl) - 1] != '\0' ||
       config.adminPassword[sizeof(config.adminPassword) - 1] != '\0') {
     return false;
   }
@@ -47,7 +50,8 @@ bool isConfigSane(const AppConfig& config) {
   }
   if (!validDeviceName(String(config.deviceName)) ||
       !validAdminPassword(String(config.adminPassword)) ||
-      (config.channelKey[0] != '\0' && !validChannelKey(String(config.channelKey)))) {
+      (config.channelKey[0] != '\0' && !validChannelKey(String(config.channelKey))) ||
+      (config.customUrl[0] != '\0' && !validCustomUrl(String(config.customUrl)))) {
     return false;
   }
   if (config.setupComplete && !config.wifi[0].enabled) {
@@ -102,12 +106,72 @@ bool validChannelKey(const String& value) {
   return true;
 }
 
+bool validCustomUrl(const String& value) {
+  if (value.length() < 8 || value.length() >= kCustomUrlSize || value.indexOf('#') >= 0) {
+    return false;
+  }
+  const bool http = value.startsWith("http://");
+  const bool https = value.startsWith("https://");
+  if (!http && !https) return false;
+
+  const size_t authorityStart = http ? 7 : 8;
+  const int pathStart = value.indexOf('/', authorityStart);
+  const int queryStart = value.indexOf('?', authorityStart);
+  size_t authorityEnd = value.length();
+  if (pathStart >= 0) authorityEnd = static_cast<size_t>(pathStart);
+  if (queryStart >= 0 && static_cast<size_t>(queryStart) < authorityEnd) {
+    authorityEnd = static_cast<size_t>(queryStart);
+  }
+  if (authorityEnd <= authorityStart) return false;
+
+  for (size_t index = 0; index < value.length(); ++index) {
+    const unsigned char c = static_cast<unsigned char>(value[index]);
+    if (c <= 0x20 || c > 0x7E) return false;
+  }
+  for (size_t index = authorityStart; index < authorityEnd; ++index) {
+    if (value[index] == '@') return false;
+  }
+  return true;
+}
+
 bool validAdminPassword(const String& value) {
   if (value.isEmpty()) return true;
   if (value.length() < 8 || value.length() > 32) return false;
   for (size_t index = 0; index < value.length(); ++index) {
     const unsigned char c = static_cast<unsigned char>(value[index]);
     if (c < 0x20 || c > 0x7E) return false;
+  }
+  return true;
+}
+
+bool parseReportingBackend(const String& value, ReportingBackend& backend) {
+  if (value == F("svitlobot")) {
+    backend = ReportingBackend::Svitlobot;
+    return true;
+  }
+  if (value == F("custom")) {
+    backend = ReportingBackend::CustomUrl;
+    return true;
+  }
+  return false;
+}
+
+const char* reportingBackendName(const AppConfig& config) {
+  return config.reportingBackend == static_cast<uint8_t>(ReportingBackend::CustomUrl)
+             ? "custom"
+             : "svitlobot";
+}
+
+bool reportingConfigurationValid(const AppConfig& config) {
+  if (config.reportingBackend == static_cast<uint8_t>(ReportingBackend::CustomUrl)) {
+    return validCustomUrl(String(config.customUrl));
+  }
+  return validChannelKey(String(config.channelKey));
+}
+
+bool reportingUsesTls(const AppConfig& config) {
+  if (config.reportingBackend == static_cast<uint8_t>(ReportingBackend::CustomUrl)) {
+    return String(config.customUrl).startsWith("https://");
   }
   return true;
 }

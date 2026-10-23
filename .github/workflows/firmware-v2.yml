@@ -71,7 +71,7 @@ jobs:
           if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
             version="${GITHUB_REF_NAME#v}"
           else
-            version="2.0.0-dev.${GITHUB_SHA::7}"
+            version="2.1.0-dev.${GITHUB_SHA::7}"
           fi
           echo "SVB_FIRMWARE_VERSION=$version" >> "$GITHUB_ENV"
           echo "RELEASE_VERSION=$version" >> "$GITHUB_ENV"
@@ -86,10 +86,10 @@ jobs:
           mkdir -p dist
           app_size=$(stat -c%s "$build_dir/firmware.bin")
           case "$env_name" in
-            esp01_512k) test "$app_size" -le 457000 ;;
-            esp01_1m) test "$app_size" -le 470000 ;;
+            esp01_512k) test "$app_size" -le 463000 ;;
+            esp01_1m) test "$app_size" -le 479232 ;;
             d1_mini|nodemcuv2) test "$app_size" -le 600000 ;;
-            sonoff_basic_r2|sonoff_basic_r3) test "$app_size" -le 470000 ;;
+            sonoff_basic_r2|sonoff_basic_r3) test "$app_size" -le 479232 ;;
             *) test "$app_size" -le 1400000 ;;
           esac
           cp "$build_dir/firmware.bin" "dist/svitloboard-$env_name.bin"
@@ -127,8 +127,8 @@ jobs:
         shell: bash
         run: |
           cp -R docs/. site/
-          version="2.0.0-dev.${GITHUB_SHA::7}"
-          find site/manifests -name '*.json' -exec sed -i "s/2.0.0-dev/$version/g" {} +
+          version="2.1.0-dev.${GITHUB_SHA::7}"
+          find site/manifests -name '*.json' -exec sed -i "s/2.1.0-dev/$version/g" {} +
           test -f site/index.html
           test -f site/firmware/svitloboard-esp01_512k.bin
           test -f site/firmware/svitloboard-esp32dev.factory.bin

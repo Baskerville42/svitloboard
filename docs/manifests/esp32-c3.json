@@ -1,1 +1,1 @@
-{"name":"SvitloBoard","version":"2.0.0-dev","new_install_prompt_erase":true,"new_install_improv_wait_time":0,"builds":[{"chipFamily":"ESP32-C3","improv":false,"parts":[{"path":"../firmware/svitloboard-esp32-c3.factory.bin","offset":0}]}]}
+{"name":"SvitloBoard","version":"2.1.0-dev","new_install_prompt_erase":true,"new_install_improv_wait_time":0,"builds":[{"chipFamily":"ESP32-C3","improv":false,"parts":[{"path":"../firmware/svitloboard-esp32-c3.factory.bin","offset":0}]}]}

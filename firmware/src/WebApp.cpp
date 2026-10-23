@@ -45,7 +45,7 @@ void WebApp::registerRoutes() {
   server_.on("/", HTTP_GET, [this]() {
     if (!authorize(false)) return;
     server_.sendHeader(F("Cache-Control"), F("no-store"));
-#if defined(SVB_PROFILE_COMPACT)
+#if defined(SVB_PROFILE_COMPACT) || defined(SVB_PROFILE_MINIMAL)
     server_.sendHeader(F("Content-Encoding"), F("gzip"));
     server_.send_P(200, "text/html; charset=utf-8",
                    reinterpret_cast<PGM_P>(kWebUiGzip), kWebUiGzipSize);
@@ -58,6 +58,9 @@ void WebApp::registerRoutes() {
   server_.on("/api/config", HTTP_GET, [this]() { handleConfig(); });
   server_.on("/api/setup", HTTP_POST, [this]() { handleSetup(); });
   server_.on("/api/wifi", HTTP_POST, [this]() { handleWifi(); });
+#if defined(SVB_PROFILE_MINIMAL)
+  server_.on("/api/reporting", HTTP_POST, [this]() { handleReporting(); });
+#endif
 #if !defined(SVB_PROFILE_MINIMAL)
   server_.on("/api/settings", HTTP_POST, [this]() { handleSettings(); });
   server_.on("/api/security", HTTP_POST, [this]() { handleSecurity(); });
@@ -80,6 +83,22 @@ void WebApp::handleStatusFrame() {
     sendError(409, F("Setup is incomplete"));
     return;
   }
+  if (config_.reportingBackend == static_cast<uint8_t>(ReportingBackend::CustomUrl)) {
+    String html;
+    html.reserve(520);
+    html += F("<!doctype html><html lang=uk><meta charset=utf-8>"
+              "<meta name=viewport content=\"width=device-width,initial-scale=1\">"
+              "<style>body{font:16px system-ui;color:#625d72;padding:22px;margin:0}"
+              "b{color:#252236}</style><body><b>Custom URL</b><p>Стан запитів: ");
+    html += api_.resultName();
+    html += F("</p><p>HTTP-код: ");
+    html += api_.httpCode();
+    html += F("</p><p>Custom URL викликається лише за розкладом або вручну кнопкою ping. "
+              "Ця перевірка не надсилає додатковий запит.</p></body></html>");
+    server_.sendHeader(F("Cache-Control"), F("no-store"));
+    server_.send(200, "text/html; charset=utf-8", html);
+    return;
+  }
   if (config_.channelKey[0] == '\0') {
     server_.sendHeader(F("Cache-Control"), F("no-store"));
     server_.send(200, "text/html; charset=utf-8",
@@ -98,11 +117,26 @@ void WebApp::handleStatusFrame() {
 void WebApp::handleStatus() {
 #if defined(SVB_PROFILE_MINIMAL)
   if (!authorize(false)) return;
+  String json;
+  json.reserve(280);
+  json += F("{\"configGeneration\":");
+  json += store_.generation();
+  json += F(",\"wifi\":{\"state\":\"");
+  json += wifi_.stateName();
+  json += F("\",\"apActive\":");
+  json += wifi_.apActive() ? F("true") : F("false");
+  json += F("},\"api\":{\"backend\":\"");
+  json += reportingBackendName(config_);
+  json += F("\",\"result\":\"");
+  json += api_.resultName();
+  json += F("\",\"httpCode\":");
+  json += api_.httpCode();
+  json += F("}}");
+  sendJson(200, json);
 #else
   const bool handoffVisible = provisioningHandoff_ && wifi_.apActive() &&
                               !deadlineReached(millis(), provisioningHandoffUntil_);
   if (!handoffVisible && !authorize(false)) return;
-#endif
   String json;
   json.reserve(2740);
   json += F("{\"version\":\"");
@@ -139,7 +173,9 @@ void WebApp::handleStatus() {
   json += wifi_.accessPointIp();
   json += F("\",\"error\":\"");
   json += jsonEscape(wifi_.lastError());
-  json += F("\"},\"api\":{\"result\":\"");
+  json += F("\"},\"api\":{\"backend\":\"");
+  json += reportingBackendName(config_);
+  json += F("\",\"result\":\"");
   json += api_.resultName();
   json += F("\",\"httpCode\":");
   json += api_.httpCode();
@@ -149,6 +185,12 @@ void WebApp::handleStatus() {
   json += api_.lastSuccessMs();
   json += F(",\"clockReady\":");
   json += api_.clockReady() ? F("true") : F("false");
+  json += F(",\"usesTls\":");
+  json += reportingUsesTls(config_) ? F("true") : F("false");
+  json += F(",\"offSupported\":");
+  json += config_.reportingBackend == static_cast<uint8_t>(ReportingBackend::Svitlobot)
+              ? F("true")
+              : F("false");
   json += F(",\"offQueued\":");
   json += api_.offQueued() ? F("true") : F("false");
   json += F("},\"power\":{\"available\":");
@@ -171,13 +213,28 @@ void WebApp::handleStatus() {
   }
   json += F("]}");
   sendJson(200, json);
+#endif
 }
 
 void WebApp::handleConfig() {
   if (!authorize(false)) return;
 #if defined(SVB_PROFILE_MINIMAL)
-  sendJson(200, config_.setupComplete ? F("{\"setupComplete\":true}")
-                                      : F("{\"setupComplete\":false}"));
+  String json;
+  json.reserve(520);
+  json += F("{\"setupComplete\":");
+  json += config_.setupComplete ? F("true") : F("false");
+  json += F(",\"reportingBackend\":\"");
+  json += reportingBackendName(config_);
+  json += F("\",\"channelKey\":\"");
+  json += jsonEscape(config_.channelKey);
+  json += F("\",\"customUrl\":\"");
+  json += jsonEscape(config_.customUrl);
+  json += F("\",\"pingPaused\":");
+  json += config_.pingPaused ? F("true") : F("false");
+  json += F(",\"pingInterval\":");
+  json += config_.pingIntervalSeconds;
+  json += '}';
+  sendJson(200, json);
 #else
   String json;
   json.reserve(1350);
@@ -189,6 +246,11 @@ void WebApp::handleConfig() {
   json += config_.channelKey[0] ? F("true") : F("false");
   json += F(",\"channelKey\":\"");
   json += jsonEscape(config_.channelKey);
+  json += '"';
+  json += F(",\"reportingBackend\":\"");
+  json += reportingBackendName(config_);
+  json += F("\",\"customUrl\":\"");
+  json += jsonEscape(config_.customUrl);
   json += '"';
   json += F(",\"adminPasswordSet\":");
   json += config_.adminPassword[0] ? F("true") : F("false");
@@ -229,18 +291,27 @@ void WebApp::handleSetup() {
   const String ssid = server_.arg("ssid");
   const String password = server_.arg("password");
   const String channelKey = server_.arg("channelKey");
+  const String customUrl = server_.arg("customUrl");
   const String adminPassword = server_.arg("adminPassword");
+  String backendValue = server_.arg("reportingBackend");
+  if (backendValue.isEmpty()) backendValue = F("svitlobot");
+  ReportingBackend backend = ReportingBackend::Svitlobot;
   if (!validSsid(ssid) || !validWifiPassword(password) ||
+      !parseReportingBackend(backendValue, backend) ||
       (!channelKey.isEmpty() && !validChannelKey(channelKey)) ||
+      ((backend == ReportingBackend::CustomUrl || !customUrl.isEmpty()) &&
+       !validCustomUrl(customUrl)) ||
       !validAdminPassword(adminPassword)) {
-    sendError(400, F("Invalid SSID, password, channel key or admin password"));
+    sendError(400, F("Invalid Wi-Fi, reporting destination or administrator password"));
     return;
   }
 
   AppConfig candidate = config_;
   copyChecked(candidate.wifi[0].ssid, sizeof(candidate.wifi[0].ssid), ssid);
   copyChecked(candidate.wifi[0].password, sizeof(candidate.wifi[0].password), password);
+  candidate.reportingBackend = static_cast<uint8_t>(backend);
   copyChecked(candidate.channelKey, sizeof(candidate.channelKey), channelKey);
+  copyChecked(candidate.customUrl, sizeof(candidate.customUrl), customUrl);
   copyChecked(candidate.adminPassword, sizeof(candidate.adminPassword), adminPassword);
   candidate.wifi[0].enabled = 1;
   candidate.setupComplete = 1;
@@ -249,10 +320,39 @@ void WebApp::handleSetup() {
   provisioningHandoff_ = true;
   provisioningHandoffUntil_ = millis() + kProvisioningStatusMs;
 #endif
-  api_.requestPingNow();
   sendJson(200, F("{\"ok\":true}"));
+  api_.requestPingAfter(kPostSavePingDelayMs);
   scheduleWifiReconfigure();
 }
+
+#if defined(SVB_PROFILE_MINIMAL)
+void WebApp::handleReporting() {
+  if (!authorize(true)) return;
+  const String channelKey = server_.arg("channelKey");
+  const String customUrl = server_.arg("customUrl");
+  ReportingBackend backend = ReportingBackend::Svitlobot;
+  long interval = 0;
+  if (!parseReportingBackend(server_.arg("reportingBackend"), backend) ||
+      (!channelKey.isEmpty() && !validChannelKey(channelKey)) ||
+      ((backend == ReportingBackend::CustomUrl || !customUrl.isEmpty()) &&
+       !validCustomUrl(customUrl)) ||
+      !parseInteger(server_.arg("pingInterval"), kMinimumPingIntervalSeconds,
+                    kMaximumPingIntervalSeconds, interval)) {
+    sendError(400, F("Invalid reporting settings"));
+    return;
+  }
+
+  AppConfig candidate = config_;
+  candidate.reportingBackend = static_cast<uint8_t>(backend);
+  copyChecked(candidate.channelKey, sizeof(candidate.channelKey), channelKey);
+  copyChecked(candidate.customUrl, sizeof(candidate.customUrl), customUrl);
+  candidate.pingPaused = server_.hasArg("pingPaused");
+  candidate.pingIntervalSeconds = static_cast<uint16_t>(interval);
+  if (!saveOrError(candidate)) return;
+  sendJson(200, F("{\"ok\":true}"));
+  api_.requestPingAfter(kPostSavePingDelayMs);
+}
+#endif
 
 void WebApp::handleWifi() {
   if (!authorize(true)) return;
@@ -309,10 +409,15 @@ void WebApp::handleSettings() {
   if (!authorize(true)) return;
   const String deviceName = server_.arg("deviceName");
   const String channelKey = server_.arg("channelKey");
+  const String customUrl = server_.arg("customUrl");
   const String adminPassword = server_.arg("adminPassword");
+  ReportingBackend backend = ReportingBackend::Svitlobot;
   long interval = 0;
-  if (!validDeviceName(deviceName) ||
+  if (!parseReportingBackend(server_.arg("reportingBackend"), backend) ||
+      !validDeviceName(deviceName) ||
       (!channelKey.isEmpty() && !validChannelKey(channelKey)) ||
+      ((backend == ReportingBackend::CustomUrl || !customUrl.isEmpty()) &&
+       !validCustomUrl(customUrl)) ||
       (!adminPassword.isEmpty() && !validAdminPassword(adminPassword)) ||
       !parseInteger(server_.arg("pingInterval"), kMinimumPingIntervalSeconds,
                     kMaximumPingIntervalSeconds, interval)) {
@@ -322,8 +427,10 @@ void WebApp::handleSettings() {
 
   AppConfig candidate = config_;
   const bool hostnameChanged = deviceName != config_.deviceName;
+  candidate.reportingBackend = static_cast<uint8_t>(backend);
   copyChecked(candidate.deviceName, sizeof(candidate.deviceName), deviceName);
   copyChecked(candidate.channelKey, sizeof(candidate.channelKey), channelKey);
+  copyChecked(candidate.customUrl, sizeof(candidate.customUrl), customUrl);
   if (!adminPassword.isEmpty()) {
     copyChecked(candidate.adminPassword, sizeof(candidate.adminPassword), adminPassword);
   }
@@ -331,7 +438,7 @@ void WebApp::handleSettings() {
   candidate.pingIntervalSeconds = static_cast<uint16_t>(interval);
   if (!saveOrError(candidate)) return;
   sendJson(200, F("{\"ok\":true}"));
-  api_.requestPingNow();
+  api_.requestPingAfter(kPostSavePingDelayMs);
   if (hostnameChanged) scheduleWifiReconfigure();
 }
 
