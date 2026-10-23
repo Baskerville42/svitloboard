@@ -1,8 +1,9 @@
 # SvitloBoard 2 architecture
 
-SvitloBoard 2 is a new firmware with its own behavior contract and module boundaries. The legacy
-sketch is a source of product requirements, not a dependency. Tasmota is an engineering reference:
-proven algorithms may be adapted with provenance, but the project is not a Tasmota fork or skin.
+SvitloBoard 2 is a new firmware with its own behavior contract and module boundaries. Version 1
+behavior informed the product requirements but its source is not a dependency and remains only in
+Git history. Tasmota is an engineering reference: proven algorithms may be adapted with
+provenance, but the project is not a Tasmota fork or skin.
 
 ## Runtime flow
 

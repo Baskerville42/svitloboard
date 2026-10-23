@@ -1,8 +1,7 @@
 # SvitloBoard 2 firmware
 
-This directory contains the new firmware. It is intentionally isolated from the legacy
-Arduino sketch in the repository root, so existing installations and uncommitted legacy
-changes are not rewritten while version 2 is being validated.
+This directory contains the complete SvitloBoard 2 firmware. Version 1 source is not a build
+dependency and remains available only in Git history and earlier releases.
 
 ## Current behavior
 
