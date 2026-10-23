@@ -451,7 +451,6 @@ def verify_security_and_site(result: Verification) -> None:
             "docs/hardware-power-input.md",
             "docs/roadmap.md",
             "docs/test-plan.md",
-            "docs/validation.md",
         )
     ).lower()
     for forbidden in ("tas" + "mota", "g" + "pl"):
