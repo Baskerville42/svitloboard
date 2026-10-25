@@ -34,6 +34,12 @@ jobs:
           python-version: "3.12"
       - name: Verify targets, manifests, and security invariants
         run: python firmware/scripts/verify_release.py
+      - name: Check slot scheduling and configuration migration
+        run: |
+          python firmware/scripts/test_ping_slots.py
+          python firmware/scripts/test_svitlobot_client.py
+          python firmware/scripts/test_config_store.py
+          python firmware/scripts/test_slot_ui.py
       - name: Check embedded web UI JavaScript syntax
         shell: bash
         run: |

@@ -42,7 +42,7 @@ bool ConfigStore::load(AppConfig& config) {
 
   // These records are too large for the ESP8266 loop-task stack. Allocate the
   // scratch space only while loading, then release it before networking starts.
-  std::unique_ptr<RecordBuffer> scratch(new (std::nothrow) RecordBuffer{});
+  std::unique_ptr<Record> scratch(new (std::nothrow) Record{});
   if (!scratch) {
     setConfigDefaults(config);
     diagnostics_.add(EventLevel::Error, F("Cannot allocate config load buffer"));
@@ -51,50 +51,22 @@ bool ConfigStore::load(AppConfig& config) {
 
   activeSlot_ = -1;
   generation_ = 0;
-  bool currentFound = false;
+  uint16_t selectedSchema = 0;
   for (int8_t slot = 0; slot < 2; ++slot) {
-    Record& record = scratch->current;
-    if (!readRecord(kSlotPaths[slot], record) || !validRecord(record)) continue;
-    if (!currentFound || generationAfter(record.generation, generation_)) {
+    Record& record = *scratch;
+    if (!readRecord(kSlotPaths[slot], record)) continue;
+    if (activeSlot_ < 0 || generationAfter(record.generation, generation_)) {
       config = record.config;
       generation_ = record.generation;
       activeSlot_ = slot;
-      currentFound = true;
+      selectedSchema = record.schema;
     }
   }
-  if (currentFound) {
+  if (activeSlot_ >= 0) {
+    scratch.reset();
     diagnostics_.add(EventLevel::Info, String(F("Loaded config slot ")) + activeSlot_ +
                                             F(" generation ") + generation_);
-    return true;
-  }
-
-  std::unique_ptr<AppConfig> migrated(new (std::nothrow) AppConfig{});
-  if (!migrated) {
-    setConfigDefaults(config);
-    diagnostics_.add(EventLevel::Error, F("Cannot allocate config migration buffer"));
-    return false;
-  }
-
-  bool legacyFound = false;
-  for (int8_t slot = 0; slot < 2; ++slot) {
-    LegacyRecordV1& record = scratch->legacy;
-    if (!readLegacyRecord(kSlotPaths[slot], record) ||
-        !validLegacyRecord(record, *migrated)) {
-      continue;
-    }
-    if (!legacyFound || generationAfter(record.generation, generation_)) {
-      config = *migrated;
-      generation_ = record.generation;
-      activeSlot_ = slot;
-      legacyFound = true;
-    }
-  }
-  if (legacyFound) {
-    scratch.reset();
-    migrated.reset();
-    diagnostics_.add(EventLevel::Info,
-                     String(F("Migrating config schema 1 from slot ")) + activeSlot_);
-    if (!save(config)) {
+    if (selectedSchema != SVB_CONFIG_SCHEMA && !save(config)) {
       diagnostics_.add(EventLevel::Warning,
                        F("Config migration could not be persisted; using migrated values"));
     }
@@ -104,7 +76,7 @@ bool ConfigStore::load(AppConfig& config) {
   setConfigDefaults(config);
   activeSlot_ = -1;
   generation_ = 0;
-  diagnostics_.add(EventLevel::Info, F("No valid v2 config; first setup required"));
+  diagnostics_.add(EventLevel::Info, F("No valid config; first setup required"));
   return false;
 }
 
@@ -137,7 +109,7 @@ bool ConfigStore::save(const AppConfig& config) {
   }
 
   memset(record.get(), 0, sizeof(Record));
-  if (!readRecord(kTemporaryPath, *record) || !validRecord(*record)) {
+  if (!readRecord(kTemporaryPath, *record)) {
     LittleFS.remove(kTemporaryPath);
     diagnostics_.add(EventLevel::Error, F("Config read-back failed; previous slot retained"));
     return false;
@@ -218,19 +190,42 @@ bool ConfigStore::discardFastBootCounter() {
 
 bool ConfigStore::readRecord(const char* path, Record& record) const {
   File file = LittleFS.open(path, "r");
-  if (!file || file.size() != sizeof(Record)) return false;
-  const size_t bytesRead = file.read(reinterpret_cast<uint8_t*>(&record), sizeof(Record));
+  if (!file) return false;
+  const size_t legacySize = offsetof(Record, config) + sizeof(LegacyAppConfigV1) + sizeof(uint32_t);
+  // Schema 3 appends two bytes to the otherwise unchanged schema 2 payload.
+  const size_t v2Size = sizeof(Record) - 2;
+  const size_t size = file.size();
+  if (size != legacySize && size != v2Size && size != sizeof(Record)) return false;
+  auto* bytes = reinterpret_cast<uint8_t*>(&record);
+  const size_t bytesRead = file.read(bytes, size);
   file.close();
-  return bytesRead == sizeof(Record);
-}
+  const size_t expectedSize = record.schema == 1 ? legacySize :
+                              record.schema == 2 ? v2Size :
+                              record.schema == SVB_CONFIG_SCHEMA ? sizeof(Record) : 0;
+  if (bytesRead != size || record.magic != kRecordMagic || record.size != size ||
+      size != expectedSize) {
+    return false;
+  }
+  uint32_t crc;
+  memcpy(&crc, bytes + size - sizeof(crc), sizeof(crc));
+  if (crc != calculateCrc(bytes, size - sizeof(crc))) return false;
 
-bool ConfigStore::readLegacyRecord(const char* path, LegacyRecordV1& record) const {
-  File file = LittleFS.open(path, "r");
-  if (!file || file.size() != sizeof(LegacyRecordV1)) return false;
-  const size_t bytesRead =
-      file.read(reinterpret_cast<uint8_t*>(&record), sizeof(LegacyRecordV1));
-  file.close();
-  return bytesRead == sizeof(LegacyRecordV1);
+  if (record.schema == 1) {
+    // Expand the two inserted schema 2 fields from the end, so the old packed
+    // payload can migrate in-place without a second heap buffer.
+    const auto* old = reinterpret_cast<const uint8_t*>(&record.config);
+    memmove(record.config.adminPassword, old + offsetof(LegacyAppConfigV1, adminPassword),
+            sizeof(LegacyAppConfigV1) - offsetof(LegacyAppConfigV1, adminPassword));
+    memmove(record.config.deviceName, old + offsetof(LegacyAppConfigV1, deviceName),
+            sizeof(record.config.deviceName) + sizeof(record.config.channelKey));
+    record.config.reportingBackend = static_cast<uint8_t>(ReportingBackend::Svitlobot);
+    memset(record.config.customUrl, 0, sizeof(record.config.customUrl));
+  }
+  if (record.schema != SVB_CONFIG_SCHEMA) {
+    record.config.pingSlotCount = 0;
+    record.config.pingSlotIndex = 1;
+  }
+  return isConfigSane(record.config);
 }
 
 bool ConfigStore::writeRecord(const char* path, const Record& record) const {
@@ -287,37 +282,6 @@ bool ConfigStore::writeBootCount(uint8_t count) {
   bootGeneration_ = record.generation;
   bootCount_ = count;
   return true;
-}
-
-bool ConfigStore::validRecord(const Record& record) const {
-  if (record.magic != kRecordMagic || record.schema != SVB_CONFIG_SCHEMA ||
-      record.size != sizeof(Record) || !isConfigSane(record.config)) {
-    return false;
-  }
-  return record.crc32 ==
-         calculateCrc(reinterpret_cast<const uint8_t*>(&record), offsetof(Record, crc32));
-}
-
-bool ConfigStore::validLegacyRecord(const LegacyRecordV1& record, AppConfig& migrated) const {
-  if (record.magic != kRecordMagic || record.schema != 1 ||
-      record.size != sizeof(LegacyRecordV1) ||
-      record.crc32 != calculateCrc(reinterpret_cast<const uint8_t*>(&record),
-                                   offsetof(LegacyRecordV1, crc32))) {
-    return false;
-  }
-
-  setConfigDefaults(migrated);
-  migrated.setupComplete = record.config.setupComplete;
-  migrated.pingPaused = record.config.pingPaused;
-  migrated.lastWifiProfile = record.config.lastWifiProfile;
-  memcpy(migrated.deviceName, record.config.deviceName, sizeof(migrated.deviceName));
-  memcpy(migrated.channelKey, record.config.channelKey, sizeof(migrated.channelKey));
-  memcpy(migrated.adminPassword, record.config.adminPassword, sizeof(migrated.adminPassword));
-  migrated.pingIntervalSeconds = record.config.pingIntervalSeconds;
-  memcpy(migrated.wifi, record.config.wifi, sizeof(migrated.wifi));
-  migrated.expert = record.config.expert;
-  migrated.reportingBackend = static_cast<uint8_t>(ReportingBackend::Svitlobot);
-  return isConfigSane(migrated);
 }
 
 bool ConfigStore::validBootRecord(const BootRecord& record) const {

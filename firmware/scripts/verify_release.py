@@ -340,10 +340,10 @@ def verify_profile_invariants(result: Verification) -> None:
                  "panel protection must support changing and clearing the admin password")
     boot_recovery = read("firmware/src/BootRecovery.cpp")
     config_store = read("firmware/src/ConfigStore.cpp")
-    result.check("SVB_CONFIG_SCHEMA=2" in ini and
-                 "LegacyRecordV1" in config_store and
-                 "Migrating config schema 1" in config_store,
-                 "config schema 1 must migrate to the explicit reporting-backend schema")
+    # Migration, CRC and mixed-schema selection run against ConfigStore.cpp in
+    # test_config_store.py; keep the build contract tied to the current schema.
+    result.check("SVB_CONFIG_SCHEMA=3" in ini,
+                 "config schema 3 must persist the opt-in ping slot settings")
     result.check("kFastBootResetThreshold = 4" in build_config and
                  "kFastBootWindowMs = 8000" in build_config,
                  "fast power-cycle recovery contract must remain four boots within 8 seconds")

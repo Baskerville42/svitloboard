@@ -42,6 +42,8 @@ struct AppConfig {
   uint16_t pingIntervalSeconds;
   WifiProfile wifi[kWifiProfileCount];
   ExpertConfig expert;
+  uint8_t pingSlotCount;
+  uint8_t pingSlotIndex;
 };
 #pragma pack(pop)
 

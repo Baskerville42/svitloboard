@@ -20,6 +20,7 @@ void setConfigDefaults(AppConfig& config) {
   config.expert.mainsPin = -1;
   config.expert.mainsPresentLevel = HIGH;
   config.expert.debounceMs = 1500;
+  config.pingSlotIndex = 1;
 }
 
 bool isConfigSane(const AppConfig& config) {
@@ -28,6 +29,13 @@ bool isConfigSane(const AppConfig& config) {
     return false;
   }
   if (config.reportingBackend > static_cast<uint8_t>(ReportingBackend::CustomUrl)) return false;
+  if (config.pingSlotCount == 0 ? config.pingSlotIndex != 1
+                              : (config.pingSlotCount < 2 ||
+                                 config.pingSlotCount > kMaximumPingSlotCount ||
+                                 config.pingSlotIndex < 1 ||
+                                 config.pingSlotIndex > config.pingSlotCount)) {
+    return false;
+  }
   if (config.pingIntervalSeconds < kMinimumPingIntervalSeconds ||
       config.pingIntervalSeconds > kMaximumPingIntervalSeconds) {
     return false;

@@ -34,15 +34,6 @@ class ConfigStore {
     ExpertConfig expert;
   };
 
-  struct LegacyRecordV1 {
-    uint32_t magic;
-    uint16_t schema;
-    uint16_t size;
-    uint32_t generation;
-    LegacyAppConfigV1 config;
-    uint32_t crc32;
-  };
-
   struct Record {
     uint32_t magic;
     uint16_t schema;
@@ -61,18 +52,10 @@ class ConfigStore {
     uint8_t reserved[3];
     uint32_t crc32;
   };
-
-  union RecordBuffer {
-    Record current;
-    LegacyRecordV1 legacy;
-  };
 #pragma pack(pop)
 
   bool readRecord(const char* path, Record& record) const;
-  bool readLegacyRecord(const char* path, LegacyRecordV1& record) const;
   bool writeRecord(const char* path, const Record& record) const;
-  bool validRecord(const Record& record) const;
-  bool validLegacyRecord(const LegacyRecordV1& record, AppConfig& migrated) const;
   bool readBootRecord(const char* path, BootRecord& record) const;
   bool writeBootCount(uint8_t count);
   bool validBootRecord(const BootRecord& record) const;
