@@ -57,9 +57,11 @@ void SvitlobotClient::loop() {
     return;
   }
 
-  const bool slotted = config_.pingSlotCount != 0;
+  const bool slotted =
+      config_.reportingBackend == static_cast<uint8_t>(ReportingBackend::Svitlobot) &&
+      config_.pingSlotCount != 0;
   if (!slotted) slots_.reset();
-  if (reportingUsesTls(config_) || slotted) {
+  if (reportingUsesTls(config_)) {
     ensureClockStarted();
     if (!clockReady()) {
       result_ = Result::ClockNotReady;

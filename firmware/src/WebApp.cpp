@@ -386,7 +386,7 @@ void WebApp::handleReporting() {
       ((backend == ReportingBackend::CustomUrl || !customUrl.isEmpty()) &&
        !validCustomUrl(customUrl)) ||
       !parseInteger(server_.arg("pingInterval"), kMinimumPingIntervalSeconds,
-                    kMaximumPingIntervalSeconds, interval) || !parsePingSlots(candidate)) {
+                    kMaximumPingIntervalSeconds, interval) || !parsePingSlots(candidate, backend)) {
     sendError(400, F("Invalid reporting settings"));
     return;
   }
@@ -469,7 +469,7 @@ void WebApp::handleSettings() {
        !validCustomUrl(customUrl)) ||
       (!adminPassword.isEmpty() && !validAdminPassword(adminPassword)) ||
       !parseInteger(server_.arg("pingInterval"), kMinimumPingIntervalSeconds,
-                    kMaximumPingIntervalSeconds, interval) || !parsePingSlots(candidate)) {
+                    kMaximumPingIntervalSeconds, interval) || !parsePingSlots(candidate, backend)) {
     sendError(400, F("Invalid settings"));
     return;
   }
@@ -749,7 +749,9 @@ bool WebApp::parseInteger(const String& value, long minimum, long maximum, long&
   return true;
 }
 
-bool WebApp::parsePingSlots(AppConfig& candidate) {
+bool WebApp::parsePingSlots(AppConfig& candidate, ReportingBackend backend) {
+  // Other backends keep the stored Svitlobot preferences.
+  if (backend != ReportingBackend::Svitlobot) return true;
   // Older clients omit all slot fields; keep their existing schedule.
   if (!server_.hasArg("pingSlotEnabled") && !server_.hasArg("pingSlotCount") &&
       !server_.hasArg("pingSlotIndex")) return true;

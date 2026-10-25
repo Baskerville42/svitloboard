@@ -18,7 +18,16 @@ Object.defineProperty(elements.pingInterval, 'validity', {get() {
 
 const classes = {};
 const nodes = new Map();
-const form = {elements, querySelector: selector => elements[selector.match(/name=([^\]]+)/)[1]]};
+const form = {elements, querySelector(selector) {
+  if (selector === '.custom-fields') return {
+    classList: {toggle: (name, hidden) => { classes.customFields = hidden; }},
+    querySelector: () => elements.customUrl
+  };
+  if (selector === '.svitlobot-fields') return {
+    classList: {toggle: (name, hidden) => { classes.svitlobotFields = hidden; }}
+  };
+  return elements[selector.match(/name=([^\]]+)/)[1]];
+}};
 nodes.set('#settings', form);
 function q(selector) {
   if (!nodes.has(selector)) nodes.set(selector, {
@@ -32,18 +41,18 @@ let generation = 0;
 const context = vm.createContext({
   q, document: {activeElement: null}, handoff: false, loading: false,
   busyOperation: false, cfg: null, features: {}, renderedGeneration: -1,
-  scanned: true, renderEvents() {}, renderWifi() {}, toggleDestination() {},
+  scanned: true, renderEvents() {}, renderWifi() {},
   api: async url => url === '/api/config' ? config : {
     features: {}, api: {backend: 'svitlobot', result: 'waiting_slot'}, wifi: {},
     configGeneration: generation, commit: 'test', version: 'test'
   }
 });
-// Both updatePingSlots and load are extracted unchanged from WebUi.h.
+// toggleDestination, updatePingSlots, and load are extracted unchanged from WebUi.h.
 vm.runInContext(fs.readFileSync(process.argv[2], 'utf8'), context);
 
-async function restore(count, index, interval = 120) {
+async function restore(count, index, interval = 120, backend = 'svitlobot') {
   config = {
-    setupComplete: true, wifi: [], reportingBackend: 'svitlobot', channelKey: '',
+    setupComplete: true, wifi: [], reportingBackend: backend, channelKey: '',
     customUrl: '', pingPaused: false, pingInterval: interval
   };
   if (count !== undefined) config.pingSlotCount = count;
@@ -126,5 +135,70 @@ async function restore(count, index, interval = 120) {
   elements.pingInterval.value = '';
   context.updatePingSlots();
   assert.equal(+elements.pingInterval.value, 60);
-  console.log('Slot UI: restore, preview, clamp, defaults, mode switches, and interval validation passed');
+
+  // Slot controls belong only to Svitlobot. Backend toggles preserve the
+  // checkbox and slot selection while restoring Custom URL's normal interval.
+  await restore(4, 3, 100);
+  assert.equal(classes['#pingSlotControls'], false);
+  for (const backend of ['custom', 'future-backend']) {
+    elements.reportingBackend.value = backend;
+    context.toggleDestination(form);
+    assert.equal(classes['#pingSlotControls'], true);
+    assert.equal(classes['#pingSlots'], true);
+    assert.equal(classes['#pingIntervalField'], false);
+    assert.equal(elements.pingInterval.value, 100);
+    assert.equal(elements.pingSlotEnabled.checked, true);
+    assert.equal(+elements.pingSlotCount.value, 4);
+    assert.equal(+elements.pingSlotIndex.value, 3);
+    elements.reportingBackend.value = 'svitlobot';
+    context.toggleDestination(form);
+    assert.equal(classes['#pingSlotControls'], false);
+    assert.equal(classes['#pingSlots'], false);
+    assert.equal(classes['#pingIntervalField'], true);
+    assert.equal(elements.pingSlotEnabled.checked, true);
+    assert.equal(+elements.pingSlotCount.value, 4);
+    assert.equal(+elements.pingSlotIndex.value, 3);
+  }
+
+  // A saved Custom URL configuration may still retain an enabled Sv schedule.
+  // Loading it must show the editable normal interval, with all slots hidden.
+  await restore(3, 2, 80, 'custom');
+  assert.equal(classes['#pingSlotControls'], true);
+  assert.equal(classes['#pingSlots'], true);
+  assert.equal(classes['#pingIntervalField'], false);
+  assert.equal(elements.pingSlotEnabled.checked, true);
+  assert.equal(+elements.pingSlotCount.value, 3);
+  assert.equal(+elements.pingSlotIndex.value, 2);
+  elements.pingInterval.value = '20';
+  context.updatePingSlots();
+  assert.equal(elements.pingInterval.value, '20', 'Custom interval validation stays visible');
+  elements.reportingBackend.value = 'svitlobot';
+  context.toggleDestination(form);
+  assert.equal(+elements.pingInterval.value, 80);
+  assert.equal(classes['#pingSlotControls'], false);
+  assert.equal(+elements.pingSlotCount.value, 3);
+  assert.equal(+elements.pingSlotIndex.value, 2);
+
+  // Setup has destination fields but no scheduling controls. Its toggle must
+  // remain safe and must not mutate the settings form's current slot state.
+  const setupElements = {reportingBackend: input('custom'), customUrl: input()};
+  const setupVisibility = {};
+  const setupForm = {elements: setupElements, querySelector(selector) {
+    if (selector === '[name=reportingBackend]') return setupElements.reportingBackend;
+    return {
+      classList: {toggle: (name, hidden) => { setupVisibility[selector] = hidden; }},
+      querySelector: () => setupElements.customUrl
+    };
+  }};
+  context.toggleDestination(setupForm);
+  assert.equal(setupVisibility['.custom-fields'], false);
+  assert.equal(setupVisibility['.svitlobot-fields'], true);
+  assert.equal(setupElements.customUrl.required, true);
+  assert.equal(classes['#pingSlotControls'], false);
+  setupElements.reportingBackend.value = 'svitlobot';
+  context.toggleDestination(setupForm);
+  assert.equal(setupVisibility['.custom-fields'], true);
+  assert.equal(setupVisibility['.svitlobot-fields'], false);
+  assert.equal(setupElements.customUrl.required, false);
+  console.log('Slot UI: restore, preview, validation, backend isolation, and preserved preferences passed');
 })().catch(error => { console.error(error); process.exitCode = 1; });

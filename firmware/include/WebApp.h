@@ -57,7 +57,7 @@ class WebApp {
   void sendError(int status, const __FlashStringHelper* message);
   static String jsonEscape(const String& value);
   static bool parseInteger(const String& value, long minimum, long maximum, long& result);
-  bool parsePingSlots(AppConfig& candidate);
+  bool parsePingSlots(AppConfig& candidate, ReportingBackend backend);
   void inspectOtaChunk(const uint8_t* data, size_t length);
   void syncCaptiveDns();
   void scheduleWifiReconfigure();

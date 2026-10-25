@@ -89,7 +89,7 @@ void disabledMode() {
 
 void clockAndStartup() {
   SvitlobotClient client;
-  client.plainHttp(); client.slotted(); hostUnix = 0; client.loop();
+  client.slotted(); hostUnix = 0; client.loop();
   assert(client.attempts.empty() && client.ntpStarts == 1);
   assert(client.result_ == SvitlobotClient::Result::ClockNotReady);
   client.at(0); client.at(1); assert(client.attempts.empty());
@@ -98,6 +98,34 @@ void clockAndStartup() {
   client.wifi_.online = true; client.at(180); client.at(181);
   assert(client.attempts.size() == 1);  // Reconnection inside a slot waits for the next full slot.
   client.at(270); assert(client.attempts.size() == 2 && client.ntpStarts == 2);
+}
+
+void customIgnoresStoredSlots() {
+  SvitlobotClient plain;
+  plain.plainHttp(); plain.slotted(4, 4);
+  plain.config_.pingIntervalSeconds = 75;
+  plain.httpDuration = 5000;
+  hostUnix = 0; plain.loop();
+  assert(plain.attempts.size() == 1 && plain.ntpStarts == 0);
+  plain.at(79); assert(plain.attempts.size() == 1);
+  plain.at(80); assert(plain.attempts.size() == 2);
+  plain.requestPingNow(); plain.at(109);
+  assert(plain.attempts.size() == 2);
+  plain.at(110); assert(plain.attempts.size() == 3);
+
+  // Switching back restores the saved Svitlobot slots, with no overdue burst.
+  plain.config_.reportingBackend = static_cast<uint8_t>(ReportingBackend::Svitlobot);
+  plain.requestPingNow(); plain.at(120); plain.at(140);
+  assert(plain.attempts.size() == 3 && plain.ntpStarts == 1);
+  plain.at(315); assert(plain.attempts.size() == 4);
+  assert(plain.config_.pingSlotCount == 4 && plain.config_.pingSlotIndex == 4);
+
+  SvitlobotClient secure;
+  secure.plainHttp(); strcpy(secure.config_.customUrl, "https://example.test");
+  secure.slotted(4, 4); hostUnix = 0; secure.loop();
+  assert(secure.attempts.empty() && secure.ntpStarts == 1);  // Clock is needed for TLS only.
+  secure.at(0); assert(secure.attempts.size() == 1);
+  secure.at(60); assert(secure.attempts.size() == 2);  // Normal 60-second cadence, not 180.
 }
 
 void manualDelayedAndFailure() {
@@ -152,7 +180,7 @@ void configChangesAndClockSteps() {
 }
 
 int main() {
-  disabledMode(); clockAndStartup(); manualDelayedAndFailure();
+  disabledMode(); clockAndStartup(); customIgnoresStoredSlots(); manualDelayedAndFailure();
   offPriorityRetryAndPause(); configChangesAndClockSteps();
   std::cout << "SvitlobotClient production control flow: defaults, NTP, slots, retries and OFF passed\n";
 }

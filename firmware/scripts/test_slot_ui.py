@@ -54,7 +54,8 @@ with tempfile.TemporaryDirectory(prefix="svb-slot-ui-tests-") as temporary:
     ui = (firmware / "include/WebUi.h").read_text(encoding="utf-8")
     script = output / "slot_ui_production.js"
     script.write_text(
-        js_function(ui, "updatePingSlots") + "\n" + js_function(ui, "load"), encoding="utf-8"
+        "\n".join(js_function(ui, name) for name in ("toggleDestination", "updatePingSlots", "load")),
+        encoding="utf-8",
     )
     subprocess.run([
         os.environ.get("NODE", "node"), str(firmware / "tests/slot_ui/controls.js"), str(script)
