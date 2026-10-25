@@ -264,6 +264,10 @@ void WebApp::handleConfig() {
   json += config_.pingPaused ? F("true") : F("false");
   json += F(",\"pingInterval\":");
   json += config_.pingIntervalSeconds;
+  json += F(",\"pingSlotCount\":");
+  json += config_.pingSlotCount;
+  json += F(",\"pingSlotIndex\":");
+  json += config_.pingSlotIndex;
   json += F(",\"wifi\":[");
   for (uint8_t index = 0; index < kWifiProfileCount; ++index) {
     if (index) json += ',';
@@ -300,6 +304,10 @@ void WebApp::handleConfig() {
   json += config_.pingPaused ? F("true") : F("false");
   json += F(",\"pingInterval\":");
   json += config_.pingIntervalSeconds;
+  json += F(",\"pingSlotCount\":");
+  json += config_.pingSlotCount;
+  json += F(",\"pingSlotIndex\":");
+  json += config_.pingSlotIndex;
   json += F(",\"wifi\":[");
   for (uint8_t index = 0; index < kWifiProfileCount; ++index) {
     if (index) json += ',';
@@ -368,6 +376,7 @@ void WebApp::handleSetup() {
 #if defined(SVB_PROFILE_MINIMAL)
 void WebApp::handleReporting() {
   if (!authorize(true)) return;
+  AppConfig candidate = config_;
   const String channelKey = server_.arg("channelKey");
   const String customUrl = server_.arg("customUrl");
   ReportingBackend backend = ReportingBackend::Svitlobot;
@@ -377,12 +386,11 @@ void WebApp::handleReporting() {
       ((backend == ReportingBackend::CustomUrl || !customUrl.isEmpty()) &&
        !validCustomUrl(customUrl)) ||
       !parseInteger(server_.arg("pingInterval"), kMinimumPingIntervalSeconds,
-                    kMaximumPingIntervalSeconds, interval)) {
+                    kMaximumPingIntervalSeconds, interval) || !parsePingSlots(candidate, backend)) {
     sendError(400, F("Invalid reporting settings"));
     return;
   }
 
-  AppConfig candidate = config_;
   candidate.reportingBackend = static_cast<uint8_t>(backend);
   copyChecked(candidate.channelKey, sizeof(candidate.channelKey), channelKey);
   copyChecked(candidate.customUrl, sizeof(candidate.customUrl), customUrl);
@@ -447,6 +455,7 @@ void WebApp::handleWifi() {
 #if !defined(SVB_PROFILE_MINIMAL)
 void WebApp::handleSettings() {
   if (!authorize(true)) return;
+  AppConfig candidate = config_;
   const String deviceName = server_.arg("deviceName");
   const String channelKey = server_.arg("channelKey");
   const String customUrl = server_.arg("customUrl");
@@ -460,12 +469,11 @@ void WebApp::handleSettings() {
        !validCustomUrl(customUrl)) ||
       (!adminPassword.isEmpty() && !validAdminPassword(adminPassword)) ||
       !parseInteger(server_.arg("pingInterval"), kMinimumPingIntervalSeconds,
-                    kMaximumPingIntervalSeconds, interval)) {
+                    kMaximumPingIntervalSeconds, interval) || !parsePingSlots(candidate, backend)) {
     sendError(400, F("Invalid settings"));
     return;
   }
 
-  AppConfig candidate = config_;
   const bool hostnameChanged = deviceName != config_.deviceName;
   candidate.reportingBackend = static_cast<uint8_t>(backend);
   copyChecked(candidate.deviceName, sizeof(candidate.deviceName), deviceName);
@@ -738,6 +746,22 @@ bool WebApp::parseInteger(const String& value, long minimum, long maximum, long&
   const long parsed = strtol(value.c_str(), &end, 10);
   if (end == value.c_str() || *end != '\0' || parsed < minimum || parsed > maximum) return false;
   result = parsed;
+  return true;
+}
+
+bool WebApp::parsePingSlots(AppConfig& candidate, ReportingBackend backend) {
+  // Other backends keep the stored Svitlobot preferences.
+  if (backend != ReportingBackend::Svitlobot) return true;
+  // Older clients omit all slot fields; keep their existing schedule.
+  if (!server_.hasArg("pingSlotEnabled") && !server_.hasArg("pingSlotCount") &&
+      !server_.hasArg("pingSlotIndex")) return true;
+  long count = 0;
+  long index = 1;
+  if (server_.hasArg("pingSlotEnabled") &&
+      (!parseInteger(server_.arg("pingSlotCount"), 2, kMaximumPingSlotCount, count) ||
+       !parseInteger(server_.arg("pingSlotIndex"), 1, count, index))) return false;
+  candidate.pingSlotCount = static_cast<uint8_t>(count);
+  candidate.pingSlotIndex = static_cast<uint8_t>(index);
   return true;
 }
 

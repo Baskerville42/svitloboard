@@ -17,6 +17,7 @@ class SvitlobotClient {
     MissingConfiguration,
     NoWifi,
     ClockNotReady,
+    WaitingSlot,
     TlsError,
     HttpError
   };
@@ -49,6 +50,7 @@ class SvitlobotClient {
   AppConfig& config_;
   WifiManager& wifi_;
   Diagnostics& diagnostics_;
+  PingSlots slots_;
   Result result_ = Result::Never;
   int httpCode_ = 0;
   uint32_t lastAttemptMs_ = 0;

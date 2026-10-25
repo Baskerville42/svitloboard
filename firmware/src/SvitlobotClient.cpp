@@ -42,11 +42,13 @@ void SvitlobotClient::loop() {
   if (!config_.setupComplete) {
     result_ = Result::Never;
     clockStarted_ = false;
+    slots_.reset();
     return;
   }
   if (!wifi_.connected()) {
     result_ = Result::NoWifi;
     clockStarted_ = false;
+    slots_.reset();
     return;
   }
 
@@ -55,12 +57,25 @@ void SvitlobotClient::loop() {
     return;
   }
 
+  const bool slotted =
+      config_.reportingBackend == static_cast<uint8_t>(ReportingBackend::Svitlobot) &&
+      config_.pingSlotCount != 0;
+  if (!slotted) slots_.reset();
   if (reportingUsesTls(config_)) {
     ensureClockStarted();
     if (!clockReady()) {
       result_ = Result::ClockNotReady;
+      slots_.reset();
       return;
     }
+  }
+
+  const bool minimumDue = lastAttemptMs_ == 0 ||
+      deadlineReached(now, lastAttemptMs_ +
+          static_cast<uint32_t>(kMinimumPingIntervalSeconds) * 1000UL);
+  if (slotted && (result_ == Result::Never || result_ == Result::NoWifi ||
+                  result_ == Result::ClockNotReady || result_ == Result::MissingConfiguration)) {
+    result_ = Result::WaitingSlot;
   }
 
   if (offQueued_ && customBackend()) {
@@ -70,7 +85,9 @@ void SvitlobotClient::loop() {
   }
 
   if (offQueued_) {
-    if (!offRetryAtMs_ || deadlineReached(now, offRetryAtMs_)) {
+    if ((!offRetryAtMs_ || deadlineReached(now, offRetryAtMs_)) &&
+        (!slotted || (minimumDue && slots_.claim(
+            static_cast<uint32_t>(time(nullptr)), config_.pingSlotCount, config_.pingSlotIndex)))) {
       if (sendRequest(true)) {
         offQueued_ = false;
         offRetryAtMs_ = 0;
@@ -88,11 +105,12 @@ void SvitlobotClient::loop() {
     return;
   }
 
-  const uint32_t earliestAllowed =
-      lastAttemptMs_ + static_cast<uint32_t>(kMinimumPingIntervalSeconds) * 1000UL;
   const bool requestedPingDue = pingRequested_ && deadlineReached(now, pingRequestAtMs_);
-  if ((requestedPingDue || (!pingRequested_ && deadlineReached(now, nextPingMs_))) &&
-      (lastAttemptMs_ == 0 || deadlineReached(now, earliestAllowed))) {
+  const bool pingDue = slotted ? (!pingRequested_ || requestedPingDue) :
+      (requestedPingDue || (!pingRequested_ && deadlineReached(now, nextPingMs_)));
+  if (pingDue && minimumDue &&
+      (!slotted || slots_.claim(static_cast<uint32_t>(time(nullptr)),
+                               config_.pingSlotCount, config_.pingSlotIndex))) {
     pingRequested_ = false;
     sendRequest(false);
     nextPingMs_ = millis() + static_cast<uint32_t>(config_.pingIntervalSeconds) * 1000UL;
@@ -114,7 +132,7 @@ void SvitlobotClient::queueOffNotification() {
     offQueued_ = true;
     offRetryAtMs_ = 0;
     offRetryMs_ = 30000;
-    diagnostics_.add(EventLevel::Warning, F("Immediate OFF notification queued"));
+    diagnostics_.add(EventLevel::Warning, F("OFF notification queued"));
   }
 }
 
@@ -140,6 +158,7 @@ const char* SvitlobotClient::resultName() const {
     case Result::MissingConfiguration: return "missing_configuration";
     case Result::NoWifi: return "no_wifi";
     case Result::ClockNotReady: return "clock_not_ready";
+    case Result::WaitingSlot: return "waiting_slot";
     case Result::TlsError: return "tls_error";
     case Result::HttpError: return "http_error";
   }

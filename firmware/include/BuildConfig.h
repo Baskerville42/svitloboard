@@ -2,6 +2,8 @@
 
 #include <Arduino.h>
 
+#include "PingSlots.h"
+
 #ifndef SVB_FIRMWARE_VERSION
 #define SVB_FIRMWARE_VERSION "2.2.0-dev"
 #endif
