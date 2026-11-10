@@ -5,7 +5,7 @@
 #include "PingSlots.h"
 
 #ifndef SVB_FIRMWARE_VERSION
-#define SVB_FIRMWARE_VERSION "2.2.0-dev"
+#define SVB_FIRMWARE_VERSION "2.4.0-dev"
 #endif
 
 #ifndef SVB_BOARD_NAME

@@ -43,8 +43,8 @@ class SvitlobotClient {
 
  private:
   bool sendRequest(bool off);
+  String requestUrl(bool off) const;
   bool customBackend() const;
-  static String urlEncode(const char* value);
   void ensureClockStarted();
 
   AppConfig& config_;

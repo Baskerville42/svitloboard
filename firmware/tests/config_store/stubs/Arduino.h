@@ -27,6 +27,9 @@ class String {
   size_t length() const { return value_.size(); }
   bool isEmpty() const { return value_.empty(); }
   const char* c_str() const { return value_.c_str(); }
+  void reserve(size_t size) { value_.reserve(size); }
+  String& operator+=(const char* suffix) { value_ += suffix; return *this; }
+  String& operator+=(char suffix) { value_ += suffix; return *this; }
   char operator[](size_t index) const { return value_[index]; }
   bool startsWith(const char* prefix) const { return value_.find(prefix) == 0; }
   int indexOf(char needle, size_t from = 0) const {

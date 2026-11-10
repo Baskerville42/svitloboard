@@ -77,7 +77,7 @@ jobs:
           if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
             version="${GITHUB_REF_NAME#v}"
           else
-            version="2.2.0-dev.${GITHUB_SHA::7}"
+            version="2.4.0-dev.${GITHUB_SHA::7}"
           fi
           echo "SVB_FIRMWARE_VERSION=$version" >> "$GITHUB_ENV"
           echo "RELEASE_VERSION=$version" >> "$GITHUB_ENV"
@@ -133,8 +133,8 @@ jobs:
         shell: bash
         run: |
           cp -R docs/. site/
-          version="2.2.0-dev.${GITHUB_SHA::7}"
-          find site/manifests -name '*.json' -exec sed -i "s/2.2.0-dev/$version/g" {} +
+          version="2.4.0-dev.${GITHUB_SHA::7}"
+          find site/manifests -name '*.json' -exec sed -i "s/2.4.0-dev/$version/g" {} +
           test -f site/index.html
           test -f site/firmware/svitloboard-esp01_512k.bin
           test -f site/firmware/svitloboard-esp32dev.factory.bin

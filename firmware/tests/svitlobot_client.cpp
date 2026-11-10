@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "AppConfig.h"
+#include "BuildConfig.h"
 #include "Diagnostics.h"
 
 using std::min;
@@ -21,6 +22,9 @@ bool svb::reportingUsesTls(const AppConfig& config) {
 }
 struct WifiManager { bool online = true; bool connected() const { return online; } };
 struct Attempt { uint32_t ms, utc; bool off; };
+const char* testDeviceId = "e-0123abcd";
+unsigned deviceIdLookups = 0;
+const char* reportingDeviceId() { ++deviceIdLookups; return testDeviceId; }
 
 // Networking and hardware clocks are the boundary: the tested methods below
 // are extracted from production, and all slot decisions use real PingSlots.
@@ -48,6 +52,8 @@ class SvitlobotClient {
   }
   void begin(); void loop(); void requestPingNow(); void requestPingAfter(uint32_t delayMs);
   void queueOffNotification(); void cancelQueuedOffNotification();
+  String requestUrl(bool off) const;
+  String statusPageUrl() const;
   bool customBackend() const { return config_.reportingBackend != 0; }
   bool clockReady() const { return hostUnix >= kValidUnixTime; }
   void ensureClockStarted() { if (!clockStarted_) { clockStarted_ = true; ++ntpStarts; } }
@@ -179,8 +185,28 @@ void configChangesAndClockSteps() {
   assert(client.attempts.size() == 4);
 }
 
+void requestUrls() {
+  SvitlobotClient client;
+  strcpy(client.config_.channelKey, "a+b&c=1");
+  assert(client.requestUrl(false) == "https://api.svitlobot.in.ua/channelPing?channel_key=a%2Bb%26c%3D1"
+                                     "&device=e-0123abcd&model=SvitloBoard%20D1-mini&app=2.4.0-dev.abcdef");
+  assert(client.requestUrl(true) == "https://api.svitlobot.in.ua/channelPingOff?channel_key=a%2Bb%26c%3D1"
+                                    "&device=e-0123abcd&model=SvitloBoard%20D1-mini&app=2.4.0-dev.abcdef");
+  assert(client.statusPageUrl() == "https://api.svitlobot.in.ua/status?channel_key=a%2Bb%26c%3D1");
+
+  testDeviceId = nullptr;
+  assert(client.requestUrl(false) == "https://api.svitlobot.in.ua/channelPing?channel_key=a%2Bb%26c%3D1"
+                                     "&model=SvitloBoard%20D1-mini&app=2.4.0-dev.abcdef");
+
+  client.config_.reportingBackend = 1;
+  strcpy(client.config_.customUrl, "https://example.test/report?q=a%2Bb&device=external");
+  const unsigned previousLookups = deviceIdLookups;
+  assert(client.requestUrl(false) == client.config_.customUrl);
+  assert(deviceIdLookups == previousLookups);
+}
+
 int main() {
   disabledMode(); clockAndStartup(); customIgnoresStoredSlots(); manualDelayedAndFailure();
-  offPriorityRetryAndPause(); configChangesAndClockSteps();
-  std::cout << "SvitlobotClient production control flow: defaults, NTP, slots, retries and OFF passed\n";
+  offPriorityRetryAndPause(); configChangesAndClockSteps(); requestUrls();
+  std::cout << "SvitlobotClient production control flow and request URLs passed\n";
 }
