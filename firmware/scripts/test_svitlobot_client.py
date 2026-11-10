@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exercise production request control flow with mocked networking and clocks."""
+"""Exercise production request control flow and URLs with mocked hardware."""
 
 import os
 from pathlib import Path
@@ -11,8 +11,8 @@ firmware = Path(__file__).resolve().parents[1]
 source = (firmware / "src/SvitlobotClient.cpp").read_text(encoding="utf-8")
 
 
-def method(name: str) -> str:
-    start = source.index(f"void SvitlobotClient::{name}(")
+def function(signature: str) -> str:
+    start = source.index(signature)
     opening = source.index("{", start)
     depth, end = 1, opening + 1
     while depth:
@@ -23,13 +23,17 @@ def method(name: str) -> str:
 
 with tempfile.TemporaryDirectory(prefix="svb-client-tests-") as temporary:
     output = Path(temporary)
-    (output / "svitlobot_client_production.inc").write_text("\n".join(method(name) for name in [
-        "begin", "loop", "requestPingNow", "requestPingAfter", "queueOffNotification",
-        "cancelQueuedOffNotification",
+    (output / "svitlobot_client_production.inc").write_text("\n".join(function(signature) for signature in [
+        "void SvitlobotClient::begin(", "void SvitlobotClient::loop(",
+        "void SvitlobotClient::requestPingNow(", "void SvitlobotClient::requestPingAfter(",
+        "void SvitlobotClient::queueOffNotification(", "void SvitlobotClient::cancelQueuedOffNotification(",
+        "void appendUrlEncoded(", "String SvitlobotClient::requestUrl(",
+        "String SvitlobotClient::statusPageUrl(",
     ]), encoding="utf-8")
     executable = output / "svitlobot-client-tests"
     subprocess.run([
         os.environ.get("CXX", "c++"), "-std=c++11", "-O2", "-Wall", "-Wextra", "-Werror",
+        '-DSVB_BOARD_NAME="D1-mini"', '-DSVB_FIRMWARE_VERSION="2.4.0-dev.abcdefg"',
         "-I", str(output), "-I", str(firmware / "tests/config_store/stubs"),
         "-I", str(firmware / "include"), str(firmware / "tests/svitlobot_client.cpp"),
         "-o", str(executable),

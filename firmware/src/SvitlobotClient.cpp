@@ -5,16 +5,79 @@
 #if defined(ESP8266)
 #include <ESP8266HTTPClient.h>
 #include <WiFiClientSecureBearSSL.h>
+#include <user_interface.h>
 #else
 #include <HTTPClient.h>
 #include <WiFiClientSecure.h>
+#include <esp_mac.h>
+#include <mbedtls/sha256.h>
 #endif
 
 #include "BuildConfig.h"
+#if defined(ESP8266)
+#include "RootCaBearSSL.h"
+#else
 #include "RootCa.h"
+#endif
 
 namespace svb {
 namespace {
+
+#if defined(ESP8266)
+class EmbeddedTrustStore final : public BearSSL::CertStoreBase {
+ public:
+  void installCertStore(br_x509_minimal_context* context) override {
+    context->trust_anchors = kTlsTrustAnchors;
+    context->trust_anchors_num = sizeof(kTlsTrustAnchors) / sizeof(kTlsTrustAnchors[0]);
+  }
+};
+#endif
+
+const char* reportingDeviceId() {
+  static char device[11]{};
+  if (device[0]) return device;
+
+  uint8_t mac[6];
+#if defined(ESP8266)
+  if (!wifi_get_macaddr(STATION_IF, mac)) return nullptr;
+#else
+  if (esp_efuse_mac_get_default(mac) != ESP_OK) return nullptr;
+#endif
+  if (!(mac[0] | mac[1] | mac[2] | mac[3] | mac[4] | mac[5])) return nullptr;
+
+  uint8_t digest[32];
+#if defined(ESP8266)
+  br_sha256_context hash;
+  br_sha256_init(&hash);
+  br_sha256_update(&hash, mac, sizeof(mac));
+  br_sha256_out(&hash, digest);
+#else
+  if (mbedtls_sha256_ret(mac, sizeof(mac), digest, 0) != 0) return nullptr;
+#endif
+
+  static constexpr char hex[] = "0123456789abcdef";
+  device[0] = 'e';
+  device[1] = '-';
+  for (size_t index = 0; index < 4; ++index) {
+    device[2 + index * 2] = hex[digest[index] >> 4];
+    device[3 + index * 2] = hex[digest[index] & 0x0F];
+  }
+  return device;
+}
+
+void appendUrlEncoded(String& url, const char* value, size_t length) {
+  static constexpr char hex[] = "0123456789ABCDEF";
+  for (size_t index = 0; index < length; ++index) {
+    const uint8_t c = value[index];
+    if (isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~') {
+      url += static_cast<char>(c);
+    } else {
+      url += '%';
+      url += hex[c >> 4];
+      url += hex[c & 0x0F];
+    }
+  }
+}
 
 int performGet(WiFiClient& client, const String& url, bool& started) {
   HTTPClient http;
@@ -146,8 +209,11 @@ void SvitlobotClient::cancelQueuedOffNotification() {
 
 String SvitlobotClient::statusPageUrl() const {
   if (customBackend()) return String();
-  return String(F("https://")) + kApiHost + F("/status?channel_key=") +
-         urlEncode(config_.channelKey);
+  String url(F("https://"));
+  url += kApiHost;
+  url += F("/status?channel_key=");
+  appendUrlEncoded(url, config_.channelKey, strlen(config_.channelKey));
+  return url;
 }
 
 const char* SvitlobotClient::resultName() const {
@@ -177,24 +243,16 @@ bool SvitlobotClient::sendRequest(bool off) {
   lastAttemptMs_ = millis();
   httpCode_ = 0;
 
-  String url;
-  if (customBackend()) {
-    url = config_.customUrl;
-  } else {
-    const String path =
-        off ? F("/channelPingOff?channel_key=") : F("/channelPing?channel_key=");
-    url = String(F("https://")) + kApiHost + path + urlEncode(config_.channelKey);
-  }
+  const String url = requestUrl(off);
   const bool tls = url.startsWith("https://");
 
 #if defined(ESP8266)
   bool started = false;
   if (tls) {
     BearSSL::WiFiClientSecure secureClient;
-    // Parsing a PEM trust anchor allocates memory. Keep one parsed copy for the
-    // device lifetime instead of allocating and freeing it on every heartbeat.
-    static BearSSL::X509List trustAnchor(kGoogleTrustServicesRootR4);
-    secureClient.setTrustAnchors(&trustAnchor);
+    // Use the compiled anchors with BearSSL's hostname and chain validator.
+    static EmbeddedTrustStore trustStore;
+    secureClient.setCertStore(&trustStore);
     secureClient.setTimeout(kHttpTimeoutMs);
     httpCode_ = performGet(secureClient, url, started);
   } else {
@@ -205,7 +263,7 @@ bool SvitlobotClient::sendRequest(bool off) {
   bool started = false;
   if (tls) {
     WiFiClientSecure secureClient;
-    secureClient.setCACert(kGoogleTrustServicesRootR4);
+    secureClient.setCACert(kTlsRootCertificates);
     // ESP32's secure-client timeout API uses seconds, unlike HTTPClient and
     // ESP8266's stream timeout, which use milliseconds.
     constexpr uint32_t secureTimeoutSeconds = (kHttpTimeoutMs + 999U) / 1000U;
@@ -243,21 +301,27 @@ bool SvitlobotClient::customBackend() const {
   return config_.reportingBackend == static_cast<uint8_t>(ReportingBackend::CustomUrl);
 }
 
-String SvitlobotClient::urlEncode(const char* value) {
-  static const char hex[] = "0123456789ABCDEF";
-  String result;
-  result.reserve(strlen(value) * 3);
-  for (const uint8_t* cursor = reinterpret_cast<const uint8_t*>(value); *cursor; ++cursor) {
-    const uint8_t c = *cursor;
-    if (isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~') {
-      result += static_cast<char>(c);
-    } else {
-      result += '%';
-      result += hex[c >> 4];
-      result += hex[c & 0x0F];
-    }
+String SvitlobotClient::requestUrl(bool off) const {
+  if (customBackend()) return String(config_.customUrl);
+
+  const size_t keyLength = strlen(config_.channelKey);
+  // Keep the full build version in the User-Agent and cap only the API field.
+  size_t versionLength = min(sizeof(kFirmwareVersion) - 1, size_t{16});
+  while ((kFirmwareVersion[versionLength] & 0xC0) == 0x80) --versionLength;
+  String url(F("https://"));
+  url.reserve(100 + keyLength + sizeof(kBoardName) + versionLength);
+  url += kApiHost;
+  url += off ? F("/channelPingOff?channel_key=") : F("/channelPing?channel_key=");
+  appendUrlEncoded(url, config_.channelKey, keyLength);
+  if (const char* device = reportingDeviceId()) {
+    url += F("&device=");
+    url += device;
   }
-  return result;
+  url += F("&model=SvitloBoard%20");
+  appendUrlEncoded(url, kBoardName, sizeof(kBoardName) - 1);
+  url += F("&app=");
+  appendUrlEncoded(url, kFirmwareVersion, versionLength);
+  return url;
 }
 
 void SvitlobotClient::ensureClockStarted() {

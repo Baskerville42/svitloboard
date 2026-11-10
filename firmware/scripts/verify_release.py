@@ -386,7 +386,7 @@ def verify_profile_invariants(result: Verification) -> None:
                  "Додайте його в секції «СвітлоБот»" in web_app,
                  "status iframe must explain the valid setup-without-channel-key state")
     result.check('F("/status?channel_key=")' in svitlobot_client and
-                 "urlEncode(config_.channelKey)" in svitlobot_client,
+                 "appendUrlEncoded(url, config_.channelKey," in svitlobot_client,
                  "status page URL must contain a URL-encoded channel key")
 
 
@@ -463,18 +463,21 @@ def verify_security_and_site(result: Verification) -> None:
     source = "\n".join(
         path.read_text(encoding="utf-8")
         for path in (ROOT / "firmware").rglob("*")
-        if path.is_file() and ".pio" not in path.parts
+        if path.suffix in {".c", ".cpp", ".h", ".hpp"} and ".pio" not in path.parts
     )
     # Split the literals so this verifier does not flag its own source.
     for forbidden in ("set" + "Insecure(", "set" + "Fingerprint("):
         result.check(forbidden not in source, f"TLS verification bypass found: {forbidden}")
-    result.check('String(F("https://")) + kApiHost' in source,
-                 "Svitlobot API URL is not visibly constructed with HTTPS")
-    result.check("-----BEGIN CERTIFICATE-----" in source and
-                 "-----END CERTIFICATE-----" in source,
+    roots = read("firmware/include/RootCa.h")
+    result.check("-----BEGIN CERTIFICATE-----" in roots and
+                 "-----END CERTIFICATE-----" in roots,
                  "trusted root certificate is missing")
-    result.check("static BearSSL::X509List trustAnchor" in source,
-                 "ESP8266 must reuse its parsed trust anchor across HTTPS requests")
+    client = read("firmware/src/SvitlobotClient.cpp")
+    result.check("static EmbeddedTrustStore trustStore" in client and
+                 "secureClient.setCertStore(&trustStore)" in client,
+                 "ESP8266 must use embedded anchors without parsing PEM on-device")
+    result.check("secureClient.setCACert(kTlsRootCertificates)" in client,
+                 "ESP32 must use the embedded CA certificates")
 
     result.check((ROOT / "LICENSE").is_file(), "root MIT license is missing")
     result.check(not (ROOT / "firmware/LICENSE").exists() and
