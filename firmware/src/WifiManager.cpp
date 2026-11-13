@@ -58,9 +58,21 @@ void WifiManager::loop() {
 
   const wl_status_t wifiStatus = WiFi.status();
   const bool terminalFailure = wifiStatus == WL_CONNECT_FAILED || wifiStatus == WL_NO_SSID_AVAIL;
-  if (state_ == State::Connecting &&
-      (deadlineReached(now, attemptDeadline_) ||
-       (terminalFailure && deadlineReached(now, attemptStartedAt_ + kWifiTerminalStateGraceMs)))) {
+  // ESP32 keeps the previous failure status while a new asynchronous scan and
+  // connection are in progress. Give every attempt its full window so a router
+  // that boots after the board can still be discovered in recovery AP+STA mode.
+  if (state_ == State::Connecting && deadlineReached(now, attemptDeadline_)) {
+#if !defined(ESP8266)
+    // Association can succeed before a booting router's DHCP server is ready.
+    // On ESP32 BSSID() queries the live association, independently of GOT_IP.
+    // Extend this attempt once; a broken DHCP server must not block retries.
+    if (!dhcpGraceGranted_ && WiFi.BSSID() != nullptr) {
+      dhcpGraceGranted_ = true;
+      attemptDeadline_ = now + kWifiDhcpGraceMs;
+      diagnostics_.add(EventLevel::Info, F("Wi-Fi associated; waiting for DHCP"));
+      return;
+    }
+#endif
     diagnostics_.add(EventLevel::Warning,
                      String(terminalFailure ? F("Wi-Fi rejected profile ")
                                             : F("Wi-Fi timeout for profile ")) +
@@ -168,7 +180,7 @@ bool WifiManager::startNextAttempt(uint32_t now) {
 void WifiManager::beginAttempt(uint8_t profile, uint32_t now) {
   attemptedProfile_ = static_cast<int8_t>(profile);
   state_ = State::Connecting;
-  attemptStartedAt_ = now;
+  dhcpGraceGranted_ = false;
   attemptDeadline_ = now + kWifiAttemptMs;
   lastError_ = String();
   WiFi.mode(apActive_ ? WIFI_AP_STA : WIFI_STA);
