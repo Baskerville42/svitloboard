@@ -106,6 +106,23 @@ void clockAndStartup() {
   client.at(270); assert(client.attempts.size() == 2 && client.ntpStarts == 2);
 }
 
+void lateWifiAtStartup() {
+  SvitlobotClient client;
+  client.wifi_.online = false;
+  client.begin(); client.at(0); client.at(600);
+  assert(client.attempts.empty() && client.ntpStarts == 0);
+  assert(client.result_ == SvitlobotClient::Result::NoWifi);
+
+  client.wifi_.online = true;
+  hostUnix = 0; client.loop();
+  assert(client.attempts.empty() && client.ntpStarts == 1);
+  assert(client.result_ == SvitlobotClient::Result::ClockNotReady);
+  client.at(605);
+  assert(client.attempts.size() == 1 && client.result_ == SvitlobotClient::Result::Success);
+  client.at(606); assert(client.attempts.size() == 1);
+  client.at(665); assert(client.attempts.size() == 2);
+}
+
 void customIgnoresStoredSlots() {
   SvitlobotClient plain;
   plain.plainHttp(); plain.slotted(4, 4);
@@ -206,7 +223,8 @@ void requestUrls() {
 }
 
 int main() {
-  disabledMode(); clockAndStartup(); customIgnoresStoredSlots(); manualDelayedAndFailure();
+  disabledMode(); clockAndStartup(); lateWifiAtStartup();
+  customIgnoresStoredSlots(); manualDelayedAndFailure();
   offPriorityRetryAndPause(); configChangesAndClockSteps(); requestUrls();
   std::cout << "SvitlobotClient production control flow and request URLs passed\n";
 }

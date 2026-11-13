@@ -51,12 +51,12 @@ class WifiManager {
   int8_t attemptedProfile_ = -1;
   int8_t activeProfile_ = -1;
   uint32_t attemptDeadline_ = 0;
-  uint32_t attemptStartedAt_ = 0;
   uint32_t connectedAt_ = 0;
   uint32_t apStopAt_ = 0;
   uint32_t backoffDeadline_ = 0;
   uint32_t backoffMs_ = kWifiInitialBackoffMs;
   bool apActive_ = false;
+  bool dhcpGraceGranted_ = false;
   bool stableProfilePending_ = false;
   bool stableProfileReported_ = false;
   String lastError_;

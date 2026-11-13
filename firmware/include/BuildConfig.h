@@ -5,7 +5,7 @@
 #include "PingSlots.h"
 
 #ifndef SVB_FIRMWARE_VERSION
-#define SVB_FIRMWARE_VERSION "2.4.0-dev"
+#define SVB_FIRMWARE_VERSION "2.4.1-dev"
 #endif
 
 #ifndef SVB_BOARD_NAME
@@ -43,10 +43,10 @@ constexpr uint16_t kDefaultPingIntervalSeconds = 60;
 constexpr uint16_t kMinimumPingIntervalSeconds = 30;
 constexpr uint16_t kMaximumPingIntervalSeconds = 3600;
 constexpr uint32_t kWifiAttemptMs = 12000;
-constexpr uint32_t kWifiTerminalStateGraceMs = 1500;
+constexpr uint32_t kWifiDhcpGraceMs = 30000;
 constexpr uint32_t kWifiStableMs = 30000;
 constexpr uint32_t kWifiInitialBackoffMs = 15000;
-constexpr uint32_t kWifiMaximumBackoffMs = 300000;
+constexpr uint32_t kWifiMaximumBackoffMs = 30000;
 constexpr uint32_t kWifiReconfigureDelayMs = 2000;
 constexpr uint32_t kProvisioningApGraceMs = 60000;
 constexpr uint32_t kProvisioningStatusMs = 60000;
